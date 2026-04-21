@@ -13,7 +13,8 @@ import {
   Sparkles,
   RefreshCcw,
   CheckCircle2,
-  Box
+  Box,
+  Mail
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import axios from "axios";
@@ -30,6 +31,7 @@ export default function App() {
   const [file, setFile] = useState<File | null>(null);
   const [status, setStatus] = useState<DispatchStatus>('idle');
   const [error, setError] = useState<string | null>(null);
+  const [userEmail, setUserEmail] = useState("mimie5015@gmail.com");
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
@@ -82,7 +84,9 @@ export default function App() {
         base64Data,
         mimeType: file.type || "application/pdf",
         fileName: file.name,
-        fileSize: file.size
+        fileSize: file.size,
+        userId: userEmail,
+        lastModified: new Date(file.lastModified).toISOString()
       });
 
       setStatus('success');
@@ -94,7 +98,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-bg text-text-main flex flex-col p-4 md:p-12">
+    <div className="min-h-screen bg-bg text-text-main flex flex-col p-4 md:p-12 font-sans">
       
       {/* Navigation */}
       <nav className="max-w-4xl w-full mx-auto flex justify-between items-center mb-16">
@@ -127,7 +131,7 @@ export default function App() {
         <div className="w-full space-y-8">
           
           {/* Main Workzone */}
-          <section className="panel-white overflow-hidden relative w-full">
+          <section className="panel-white overflow-hidden relative w-full shadow-2xl shadow-slate-200/50">
             <div className="absolute top-0 right-0 p-8 opacity-5">
               <Box size={120} />
             </div>
@@ -149,6 +153,23 @@ export default function App() {
             </header>
 
             <div className="space-y-8 relative z-10">
+              {/* User Identity Section */}
+              <div className="bg-slate-50 p-6 rounded-[1.5rem] border border-slate-100 flex flex-col md:flex-row md:items-center gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-brand/10 flex items-center justify-center text-brand">
+                    <Mail size={18} />
+                  </div>
+                  <label className="text-xs font-black uppercase tracking-widest text-slate-500 shrink-0">Dispatcher ID</label>
+                </div>
+                <input 
+                  type="email" 
+                  value={userEmail}
+                  onChange={(e) => setUserEmail(e.target.value)}
+                  placeholder="Enter dispatcher email"
+                  className="bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-brand/20 outline-none w-full transition-all"
+                />
+              </div>
+
               <AnimatePresence mode="wait">
                 {status !== 'success' && !file ? (
                   <motion.div 
@@ -160,16 +181,16 @@ export default function App() {
                     <div 
                       {...getRootProps()} 
                       className={cn(
-                        "border-2 border-dashed rounded-[2.5rem] h-80 flex flex-col items-center justify-center text-center cursor-pointer transition-all",
-                        isDragActive ? "border-brand bg-brand-soft" : "border-slate-200 hover:border-brand/40 group bg-slate-50/50"
+                        "border-2 border-dashed rounded-[2.5rem] h-72 flex flex-col items-center justify-center text-center cursor-pointer transition-all",
+                        isDragActive ? "border-brand bg-brand-soft" : "border-slate-200 hover:border-brand/40 group bg-slate-100/30"
                       )}
                     >
                       <input {...getInputProps()} />
-                      <div className="w-20 h-20 bg-white rounded-3xl shadow-sm border border-slate-100 flex items-center justify-center mb-4 group-hover:-translate-y-2 transition-transform">
+                      <div className="w-20 h-20 bg-white rounded-3xl shadow-sm border border-slate-100 flex items-center justify-center mb-4 group-hover:-translate-y-2 transition-transform duration-300">
                         <Upload size={32} className="text-brand" />
                       </div>
-                      <p className="font-bold text-slate-600 uppercase tracking-widest">Select Document</p>
-                      <p className="text-xs text-slate-400 mt-1 font-bold italic">Ready for secure processing</p>
+                      <p className="font-bold text-slate-700 uppercase tracking-widest text-sm">Select Document</p>
+                      <p className="text-[10px] text-slate-400 mt-1 font-bold italic uppercase tracking-wider">Ready for secure processing</p>
                     </div>
                   </motion.div>
                 ) : status !== 'success' ? (
@@ -179,21 +200,26 @@ export default function App() {
                     animate={{ opacity: 1, scale: 1 }}
                     className="space-y-8"
                   >
-                    <div className="p-8 rounded-[2.5rem] bg-slate-50 border border-slate-200 flex items-center justify-between shadow-sm">
+                    <div className="p-8 rounded-[2.5rem] bg-slate-50 border border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-6 shadow-sm">
                       <div className="flex items-center gap-6">
-                        <div className="w-16 h-16 bg-white rounded-2xl shadow-sm flex items-center justify-center text-brand">
+                        <div className="w-16 h-16 bg-white rounded-2xl shadow-sm flex items-center justify-center text-brand border border-slate-100">
                           <FileText size={32} />
                         </div>
                         <div>
                           <p className="text-lg font-bold text-slate-800 break-all">{file?.name}</p>
-                          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">
-                            {file ? (file.size / 1024 / 1024).toFixed(2) : 0} MB • READY
-                          </p>
+                          <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1">
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest bg-white py-0.5 px-2 rounded-md border border-slate-100 shadow-sm">
+                              {file ? (file.size / 1024 / 1024).toFixed(2) : 0} MB
+                            </p>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest bg-white py-0.5 px-2 rounded-md border border-slate-100 shadow-sm">
+                              {file ? new Date(file.lastModified).toLocaleDateString() : ''}
+                            </p>
+                          </div>
                         </div>
                       </div>
                       <button 
                         onClick={clearFile}
-                        className="w-12 h-12 rounded-2xl hover:bg-red-50 hover:text-red-500 transition-colors flex items-center justify-center text-slate-300"
+                        className="w-12 h-12 rounded-2xl hover:bg-red-50 hover:text-red-500 transition-all flex items-center justify-center text-slate-300 border border-slate-200 hover:border-red-100"
                       >
                         <Trash2 size={24} />
                       </button>
@@ -213,7 +239,7 @@ export default function App() {
                         <>
                           <Zap size={22} className="group-hover:animate-pulse" />
                           <span>UPLOAD AND PROCESS</span>
-                          <ArrowRight size={20} className="opacity-40" />
+                          <ArrowRight size={20} className="opacity-40 group-hover:translate-x-1 transition-transform" />
                         </>
                       )}
                     </button>
@@ -225,7 +251,7 @@ export default function App() {
                     animate={{ opacity: 1, scale: 1 }}
                     className="p-12 text-center space-y-6"
                   >
-                    <div className="inline-flex w-24 h-24 bg-emerald-50 text-emerald-500 rounded-full items-center justify-center mb-4">
+                    <div className="inline-flex w-24 h-24 bg-emerald-50 text-emerald-500 rounded-full items-center justify-center mb-4 shadow-inner">
                       <CheckCircle2 size={48} />
                     </div>
                     <div>
@@ -234,11 +260,11 @@ export default function App() {
                     </div>
                     <div className="pt-4 flex flex-col items-center gap-2">
                        <p className="text-sm font-medium text-slate-500 max-w-xs transition-colors">
-                        Your document has been securely received and forwarded to your automation gateway.
+                        The document from <strong>{userEmail}</strong> has been securely received and forwarded to your automation gateway.
                        </p>
                        <button 
                          onClick={clearFile}
-                         className="mt-6 px-8 py-4 bg-slate-900 text-white rounded-2xl font-bold uppercase tracking-widest text-xs hover:bg-brand transition-all flex items-center gap-3"
+                         className="mt-6 px-10 py-5 bg-slate-900 text-white rounded-2xl font-bold uppercase tracking-widest text-xs hover:bg-brand transition-all flex items-center gap-3 shadow-xl hover:-translate-y-1"
                        >
                          <RefreshCcw size={16} />
                          New Dispatch
@@ -268,12 +294,12 @@ export default function App() {
           {status !== 'success' && status !== 'processing' && (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {[
-                { title: "Direct", icon: Box, text: "Bypasses intermediary processing for speed." },
-                { title: "Encrypted", icon: Fingerprint, text: "Secure headers with signature validation." },
-                { title: "Automated", icon: Sparkles, text: "Perfect for n8n and Zapier pipelines." }
+                { title: "Identity", icon: Mail, text: "Payloads are tagged with your dispatcher email." },
+                { title: "Metadata", icon: Box, text: "Includes file size, type, and modification dates." },
+                { title: "Security", icon: Fingerprint, text: "Encrypted headers with signature validation." }
               ].map((tip, i) => (
-                <div key={i} className="p-6 rounded-3xl bg-white/50 border border-slate-100 flex flex-col items-center text-center">
-                  <div className="w-10 h-10 bg-white rounded-xl shadow-sm border border-slate-100 flex items-center justify-center mb-3 text-brand text-opacity-80">
+                <div key={i} className="p-6 rounded-3xl bg-white/50 border border-slate-100 flex flex-col items-center text-center group hover:bg-white transition-colors duration-300">
+                  <div className="w-10 h-10 bg-white rounded-xl shadow-sm border border-slate-100 flex items-center justify-center mb-3 text-brand text-opacity-80 group-hover:scale-110 transition-transform">
                     <tip.icon size={18} />
                   </div>
                   <h4 className="text-xs font-black uppercase tracking-widest text-slate-800 mb-1">{tip.title}</h4>
@@ -286,13 +312,13 @@ export default function App() {
       </main>
 
       {/* Footer */}
-      <footer className="max-w-4xl w-full mx-auto mt-12 py-8 border-t border-slate-100 flex justify-between items-center text-[10px] font-bold text-slate-300 uppercase tracking-[0.2em] select-none">
+      <footer className="max-w-4xl w-full mx-auto mt-12 py-8 border-t border-slate-100 flex flex-col md:flex-row justify-between items-center text-[10px] font-bold text-slate-300 uppercase tracking-[0.2em] gap-4">
         <div className="flex items-center gap-6">
           <span>&copy; 2026 Everything Document</span>
         </div>
         <div className="flex items-center gap-3">
           <div className="w-1.5 h-1.5 bg-brand rounded-full shadow-[0_0_8px_rgba(59,130,246,0.5)]" />
-          <span>v3.0.0 N8N-ONLY</span>
+          <span>v3.1.0 META-ENABLED</span>
         </div>
       </footer>
     </div>

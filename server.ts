@@ -12,7 +12,7 @@ async function startServer() {
 
   // n8n Dispatch Route
   app.post("/api/dispatch", async (req, res) => {
-    const { base64Data, mimeType, fileName, fileSize } = req.body;
+    const { base64Data, mimeType, fileName, fileSize, userId, lastModified } = req.body;
 
     if (!base64Data || !mimeType) {
       return res.status(400).json({ error: "Missing required file data" });
@@ -28,14 +28,16 @@ async function startServer() {
     }
 
     try {
-      console.log(`Forwarding document to n8n: ${fileName || 'unnamed'}`);
+      console.log(`Forwarding document to n8n from ${userId || 'anonymous'}: ${fileName || 'unnamed'}`);
       
       const response = await axios.post(n8nUrl, {
         event: "document_upload",
+        userId: userId || "anonymous",
         file: {
           name: fileName,
           type: mimeType,
           size: fileSize,
+          lastModified: lastModified,
           data: base64Data
         },
         timestamp: new Date().toISOString()

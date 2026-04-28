@@ -243,7 +243,7 @@ export default function App() {
             <header className="mb-8 relative z-10 flex justify-between items-center">
               <div>
                 <span className="label-caps">Process</span>
-                <h2 className="text-2xl font-bold tracking-tight">Upload Document and Chat</h2>
+                <h2 className="text-2xl font-bold tracking-tight text-brand">V2: Upload Document & Chat</h2>
               </div>
               {(status === 'success' || status === 'chat_success') && (
                 <button 

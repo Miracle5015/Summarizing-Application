@@ -1,6 +1,6 @@
 {
   "name": "Everything Document",
-  "description": "Upload documents to summarize with AI and automatically trigger webhooks with the results.",
+  "description": "Upload documents to chat with them and automatically trigger webhooks with the results.",
   "requestFramePermissions": [],
   "majorCapabilities": []
 }

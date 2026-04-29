@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import React, { useState, useCallback, useRef, useEffect } from "react";
 import { useDropzone } from "react-dropzone";
 import { 
   FileText, 
@@ -16,12 +16,16 @@ import {
   Box,
   Mail,
   FileDown,
-  MessageSquare
+  MessageSquare,
+  Lock,
+  User as UserIcon,
+  LogOut
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import axios from "axios";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { supabase, isSupabaseConfigured } from "./lib/supabase";
 
 // @ts-ignore - mammoth and pdf-lib are loaded via CDN in index.html to ensure browser compatibility
 const mammoth = (window as any).mammoth;
@@ -32,6 +36,12 @@ function cn(...inputs: ClassValue[]) {
 }
 
 type DispatchStatus = 'idle' | 'processing' | 'converting' | 'success' | 'error';
+type AuthMode = 'signin' | 'signup';
+
+interface User {
+  id: string;
+  email: string;
+}
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -40,6 +50,13 @@ interface ChatMessage {
 }
 
 export default function App() {
+  const [user, setUser] = useState<User | null>(null);
+  const [authMode, setAuthMode] = useState<AuthMode>('signin');
+  const [authLoading, setAuthLoading] = useState(true);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [authError, setAuthError] = useState<string | null>(null);
+
   const [uploadFile, setUploadFile] = useState<{
     native: File;
     name: string;
@@ -55,6 +72,96 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [hasUploaded, setHasUploaded] = useState(false);
   const chatContainerRef = useRef<HTMLDivElement>(null);
+
+  // Setup Axios Interceptor for Supabase Auth
+  useEffect(() => {
+    const requestInterceptor = axios.interceptors.request.use(async (config) => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.access_token) {
+        config.headers.Authorization = `Bearer ${session.access_token}`;
+      }
+      return config;
+    });
+
+    return () => {
+      axios.interceptors.request.eject(requestInterceptor);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) {
+      setAuthLoading(false);
+      return;
+    }
+
+    // Check initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        setUser({
+          id: session.user.id,
+          email: session.user.email || ""
+        });
+      }
+      setAuthLoading(false);
+    });
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        setUser({
+          id: session.user.id,
+          email: session.user.email || ""
+        });
+      } else {
+        setUser(null);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!isSupabaseConfigured) {
+      setAuthError("Supabase credentials are not configured. Please set them in the environment settings.");
+      return;
+    }
+
+    setAuthLoading(true);
+    setAuthError(null);
+
+    try {
+      if (authMode === 'signup') {
+        const { data, error } = await supabase.auth.signUp({ email, password });
+        if (error) throw error;
+        if (data.user) {
+          setUser({ id: data.user.id, email: data.user.email || "" });
+        }
+      } else {
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        if (data.user) {
+          setUser({ id: data.user.id, email: data.user.email || "" });
+        }
+      }
+    } catch (err: any) {
+      setAuthError(err.message || "Authentication failed");
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+      setUser(null);
+      setChatHistory([]);
+      setUploadFile(null);
+    } catch (err) {
+      console.error("Logout failed");
+    }
+  };
 
   useEffect(() => {
     if (chatContainerRef.current) {
@@ -229,8 +336,6 @@ export default function App() {
       });
 
       const responseData = response.data.data;
-      // Many n8n webhooks return an object with an 'output' or 'response' field, 
-      // or if it's a simple return, the object itself.
       const assistantResponse = typeof responseData === 'string' ? responseData : 
                                  (responseData?.output || responseData?.response || responseData?.message || JSON.stringify(responseData));
 
@@ -242,7 +347,6 @@ export default function App() {
 
       setChatHistory(prev => [...prev, assistantMessage]);
       setChatStatus('success');
-      // Reset to idle after a short delay so the loading state disappears but success is handled
       setTimeout(() => setChatStatus('idle'), 1000);
     } catch (err: any) {
       console.error("Chat Error:", err);
@@ -251,6 +355,133 @@ export default function App() {
       setChatStatus('error');
     }
   };
+
+  if (authLoading && !user) {
+    return (
+      <div className="min-h-screen bg-[#fcfcfd] flex items-center justify-center">
+        <Loader2 className="animate-spin text-brand" size={40} />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-[#fcfcfd] text-slate-900 flex flex-col items-center justify-center p-4 font-sans relative overflow-hidden">
+        {/* Abstract Background Elements */}
+        <div className="absolute top-0 left-0 w-full h-full pointer-events-none overflow-hidden -z-10">
+          <div className="absolute -top-[10%] -left-[10%] w-[40%] h-[40%] bg-brand/5 rounded-full blur-[120px]" />
+          <div className="absolute top-[20%] -right-[10%] w-[30%] h-[30%] bg-brand-orange/5 rounded-full blur-[100px]" />
+        </div>
+
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="max-w-md w-full"
+        >
+          <div className="flex flex-col items-center mb-10">
+            <div className="w-20 h-20 bg-brand-black rounded-[30px] flex items-center justify-center shadow-2xl mb-6 relative group overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-br from-brand/30 to-transparent opacity-50" />
+              <Layers className="text-white relative z-10" size={36} />
+            </div>
+            <h1 className="text-3xl font-black tracking-tighter text-brand-black text-center">
+              Everything<span className="text-brand">Document</span>
+            </h1>
+            <p className="text-xs font-black text-slate-400 uppercase tracking-[0.3em] mt-2">Precision Context Engine</p>
+          </div>
+
+          <div className="bg-white rounded-[3rem] p-10 shadow-2xl shadow-slate-200/50 border border-slate-100 flex flex-col gap-8 relative overflow-hidden">
+            {!isSupabaseConfigured && (
+              <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex gap-3 items-start">
+                <div className="bg-amber-100 p-2 rounded-lg text-amber-600">
+                  <Lock size={16} />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-[10px] font-black text-amber-900 uppercase tracking-widest leading-none mt-1">Configuration Needed</p>
+                  <p className="text-[10px] text-amber-700 font-medium leading-relaxed">
+                    Please provide your <strong>Supabase</strong> credentials in the environment settings to enable authentication.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center gap-4 p-1 bg-slate-100 rounded-2xl">
+              <button 
+                onClick={() => setAuthMode('signin')}
+                className={cn(
+                  "flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
+                  authMode === 'signin' ? "bg-white text-brand shadow-sm" : "text-slate-400"
+                )}
+              >
+                Sign In
+              </button>
+              <button 
+                onClick={() => setAuthMode('signup')}
+                className={cn(
+                  "flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
+                  authMode === 'signup' ? "bg-white text-brand shadow-sm" : "text-slate-400"
+                )}
+              >
+                Sign Up
+              </button>
+            </div>
+
+            <form onSubmit={handleAuth} className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-4 flex items-center gap-2">
+                  <UserIcon size={12} /> Email Address
+                </label>
+                <input 
+                  type="email" 
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="name@company.com"
+                  className="w-full h-16 bg-slate-50 border-2 border-transparent focus:bg-white focus:border-brand/30 rounded-2xl px-6 font-medium text-slate-700 outline-none transition-all placeholder:text-slate-300"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-4 flex items-center gap-2">
+                  <Lock size={12} /> Secret Key
+                </label>
+                <input 
+                  type="password" 
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full h-16 bg-slate-50 border-2 border-transparent focus:bg-white focus:border-brand/30 rounded-2xl px-6 font-medium text-slate-700 outline-none transition-all placeholder:text-slate-300"
+                />
+              </div>
+
+              {authError && (
+                <p className="text-[10px] font-bold text-rose-500 uppercase tracking-wide text-center pt-2">
+                  {authError}
+                </p>
+              )}
+
+              <button 
+                type="submit"
+                disabled={authLoading}
+                className="w-full h-16 bg-brand-black text-white rounded-2xl font-black uppercase tracking-widest text-xs mt-4 hover:bg-brand transition-all flex items-center justify-center gap-3 shadow-xl shadow-brand-black/10 disabled:opacity-50"
+              >
+                {authLoading ? <Loader2 className="animate-spin" size={18} /> : (
+                  <>
+                    <span>{authMode === 'signin' ? 'Verify Identity' : 'Establish Protocol'}</span>
+                    <ArrowRight size={16} />
+                  </>
+                )}
+              </button>
+            </form>
+          </div>
+
+          <p className="mt-8 text-center text-[10px] font-black text-slate-300 uppercase tracking-[0.2em] max-w-[240px] mx-auto leading-relaxed">
+            Encrypted interaction layer. unauthorized access is strictly logged and restricted.
+          </p>
+        </motion.div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#fcfcfd] text-slate-900 flex flex-col p-4 md:p-12 font-sans overflow-x-hidden">
@@ -277,9 +508,18 @@ export default function App() {
           </div>
         </div>
         <div className="hidden md:flex items-center gap-8">
-          <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
-            <CheckCircle2 size={12} className="text-brand-orange" />
-            <span>AI Verified</span>
+          <div className="flex items-center gap-4 bg-white border border-slate-100 rounded-full pl-4 pr-1 py-1 shadow-sm">
+             <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-400 pr-2 border-r border-slate-100">
+               <Fingerprint size={12} className="text-brand-orange" />
+               <span className="max-w-[120px] truncate">{user.email}</span>
+             </div>
+             <button 
+               onClick={handleLogout}
+               className="p-3 bg-slate-50 hover:bg-rose-50 text-slate-400 hover:text-rose-500 rounded-full transition-all group"
+               title="Logout"
+             >
+               <LogOut size={14} className="group-hover:-translate-x-0.5 transition-transform" />
+             </button>
           </div>
         </div>
       </nav>

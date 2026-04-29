@@ -4,6 +4,10 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import axios from "axios";
 import FormData from "form-data";
+import jwt from "jsonwebtoken";
+import cookieParser from "cookie-parser";
+
+const SUPABASE_JWT_SECRET = process.env.SUPABASE_JWT_SECRET;
 
 async function startServer() {
   const app = express();
@@ -11,10 +15,45 @@ async function startServer() {
 
   app.use(express.json({ limit: '20mb' }));
   app.use(express.urlencoded({ extended: true, limit: '20mb' }));
+  app.use(cookieParser());
 
-  // n8n Dispatch Route (Direct Upload)
-  app.post("/api/dispatch", async (req, res) => {
+  // Authentication Middleware using Supabase JWT
+  const authenticateToken = (req: any, res: any, next: any) => {
+    // Check for token in cookies or Authorization header
+    const token = req.cookies.supabase_token || req.headers.authorization?.split(' ')[1];
+
+    if (!token) {
+      return res.status(401).json({ error: "Access denied. Please log in through Supabase." });
+    }
+
+    if (!SUPABASE_JWT_SECRET) {
+      console.error("SUPABASE_JWT_SECRET is not set in environment variables.");
+      return res.status(500).json({ error: "Server authentication misconfigured" });
+    }
+
+    try {
+      // Supabase JWTs are signed with the project's JWT Secret
+      const verified: any = jwt.verify(token, SUPABASE_JWT_SECRET);
+      req.user = {
+        id: verified.sub,
+        email: verified.email
+      };
+      next();
+    } catch (err) {
+      console.error("JWT Verification Error:", err);
+      res.status(401).json({ error: "Invalid or expired session" });
+    }
+  };
+
+  // Auth helper for the client to verify cookie status
+  app.get("/api/auth/me", authenticateToken, (req: any, res) => {
+    res.json({ user: req.user });
+  });
+
+  // n8n Dispatch Route (Direct Upload) - Protected
+  app.post("/api/dispatch", authenticateToken, async (req: any, res) => {
     const { base64Data, mimeType, fileName, fileSize, lastModified } = req.body;
+    const user = req.user;
 
     if (!base64Data || !mimeType) {
       return res.status(400).json({ error: "Missing required file data" });
@@ -22,7 +61,7 @@ async function startServer() {
 
     const n8nUrl = process.env.N8N_WEBHOOK_URL;
     const webhookSecret = process.env.WEBHOOK_SECRET || 'everything-document-proxy';
-    const userId = "mimie5015@gmail.com";
+    const userId = user.email;
 
     if (!n8nUrl || n8nUrl.includes('your-n8n-instance.com')) {
       return res.status(400).json({ 
@@ -80,13 +119,14 @@ async function startServer() {
     }
   });
 
-  // n8n Chat/Instruction Route
-  app.post("/api/chat", async (req, res) => {
+  // n8n Chat/Instruction Route - Protected
+  app.post("/api/chat", authenticateToken, async (req: any, res) => {
     const { base64Data, mimeType, fileName, fileSize, lastModified, instructions } = req.body;
+    const user = req.user;
 
     const chatUrl = process.env.CHAT_WEBHOOK_URL;
     const webhookSecret = process.env.WEBHOOK_SECRET || 'everything-document-proxy';
-    const userId = "mimie5015@gmail.com";
+    const userId = user.email;
 
     if (!chatUrl || chatUrl.includes('your-n8n-instance.com')) {
       return res.status(400).json({ 

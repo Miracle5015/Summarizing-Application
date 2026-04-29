@@ -35,8 +35,8 @@ async function startServer() {
       if (!SUPABASE_JWT_SECRET) {
         throw new Error("SUPABASE_JWT_SECRET is not defined");
       }
-      // Supabase JWTs are signed with the project's JWT Secret
-      const verified: any = jwt.verify(token, SUPABASE_JWT_SECRET);
+      // Supabase JWTs are signed with the project's JWT Secret using HS256
+      const verified: any = jwt.verify(token, SUPABASE_JWT_SECRET, { algorithms: ['HS256'] });
       req.user = {
         id: verified.sub,
         email: verified.email
@@ -90,17 +90,20 @@ async function startServer() {
 
     const n8nUrl = process.env.N8N_WEBHOOK_URL;
     const webhookSecret = process.env.WEBHOOK_SECRET || 'everything-document-proxy';
-    const userId = user.email;
+    
+    // Use Email as primary ID for display, but send both
+    const userEmail = user.email || 'no-email@supabase';
+    const userId = user.id;
 
     if (!n8nUrl || n8nUrl.includes('your-n8n-instance.com')) {
       return res.status(400).json({ 
         error: "n8n Webhook URL is not configured.",
-        details: "Please set N8N_WEBHOOK_URL in the application settings with a valid n8n or automation endpoint."
+        details: "Please set N8N_WEBHOOK_URL in the application settings."
       });
     }
 
     try {
-      console.log(`Forwarding binary document to n8n from ${userId}: ${fileName || 'unnamed'}`);
+      console.log(`Forwarding document to n8n from ${userEmail}`);
       
       const buffer = Buffer.from(base64Data, 'base64');
       
@@ -110,6 +113,7 @@ async function startServer() {
         contentType: mimeType,
       });
 
+      form.append('userEmail', userEmail);
       form.append('userId', userId);
       form.append('fileName', fileName || '');
       form.append('fileType', mimeType);
@@ -178,6 +182,10 @@ async function startServer() {
         });
       }
 
+      const userEmail = user.email || 'no-email@supabase';
+      const userId = user.id;
+
+      form.append('userEmail', userEmail);
       form.append('userId', userId);
       form.append('instructions', instructions || '');
       form.append('fileName', fileName || '');

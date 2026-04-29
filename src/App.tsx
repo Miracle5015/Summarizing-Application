@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useDropzone } from "react-dropzone";
 import { 
   FileText, 
@@ -33,6 +33,12 @@ function cn(...inputs: ClassValue[]) {
 
 type DispatchStatus = 'idle' | 'processing' | 'converting' | 'success' | 'error';
 
+interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+}
+
 export default function App() {
   const [uploadFile, setUploadFile] = useState<{
     native: File;
@@ -43,10 +49,18 @@ export default function App() {
   } | null>(null);
 
   const [instructions, setInstructions] = useState<string>("");
+  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [uploadStatus, setUploadStatus] = useState<DispatchStatus>('idle');
   const [chatStatus, setChatStatus] = useState<DispatchStatus>('idle');
   const [error, setError] = useState<string | null>(null);
   const [hasUploaded, setHasUploaded] = useState(false);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+  }, [chatHistory]);
 
   const onDropUpload = useCallback((acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
@@ -198,17 +212,38 @@ export default function App() {
   const handleChat = async () => {
     if (!instructions) return;
 
+    const userMessage: ChatMessage = {
+      role: 'user',
+      content: instructions,
+      timestamp: new Date().toLocaleTimeString()
+    };
+
+    setChatHistory(prev => [...prev, userMessage]);
+    setInstructions("");
     setChatStatus('processing');
     setError(null);
 
     try {
-      setChatStatus('processing');
-      await axios.post("/api/chat", {
+      const response = await axios.post("/api/chat", {
         instructions: instructions
       });
 
+      const responseData = response.data.data;
+      // Many n8n webhooks return an object with an 'output' or 'response' field, 
+      // or if it's a simple return, the object itself.
+      const assistantResponse = typeof responseData === 'string' ? responseData : 
+                                 (responseData?.output || responseData?.response || responseData?.message || JSON.stringify(responseData));
+
+      const assistantMessage: ChatMessage = {
+        role: 'assistant',
+        content: assistantResponse,
+        timestamp: new Date().toLocaleTimeString()
+      };
+
+      setChatHistory(prev => [...prev, assistantMessage]);
       setChatStatus('success');
-      setInstructions("");
+      // Reset to idle after a short delay so the loading state disappears but success is handled
+      setTimeout(() => setChatStatus('idle'), 1000);
     } catch (err: any) {
       console.error("Chat Error:", err);
       const serverError = err.response?.data;
@@ -388,83 +423,129 @@ export default function App() {
             <h2 className="text-xs font-black uppercase tracking-[0.3em] text-brand-black">Chat with document</h2>
           </div>
 
-          <div className={cn(
-            "panel-white border-2 border-transparent transition-all duration-500 bg-white shadow-xl shadow-slate-100",
-            chatStatus === 'success' ? "border-emerald-500/20 shadow-emerald-500/10" : ""
-          )}>
-            <AnimatePresence mode="wait">
-              {chatStatus === 'success' ? (
-                <motion.div 
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="flex flex-col items-center py-12"
-                >
-                  <div className="w-20 h-20 bg-brand text-white rounded-full flex items-center justify-center mb-6 shadow-xl shadow-brand/20">
-                    <Sparkles size={40} />
+          <div className="panel-white border-2 border-transparent transition-all duration-500 bg-white shadow-xl shadow-slate-100 overflow-hidden flex flex-col min-h-[500px]">
+            <div 
+              ref={chatContainerRef}
+              className="flex-1 p-8 overflow-y-auto space-y-6 max-h-[600px] bg-slate-50/30 scroll-smooth"
+            >
+              {chatHistory.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center text-center py-20">
+                  <div className="w-16 h-16 bg-white rounded-3xl flex items-center justify-center mb-6 text-slate-200 border border-slate-100 shadow-sm">
+                    <MessageSquare size={32} />
                   </div>
-                  <h3 className="text-2xl font-black mb-2 text-brand-black">Query Dispatched</h3>
-                  <p className="text-sm font-medium text-slate-400 mb-8 max-w-xs text-center leading-relaxed">
-                    Your document and instructions have been sent to the chat gateway.
-                  </p>
-                  <button onClick={() => setChatStatus('idle')} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-brand hover:text-slate-900 transition-colors">
-                    <RefreshCcw size={14} /> Another Query
-                  </button>
-                </motion.div>
+                  <p className="text-xs text-slate-400 font-black uppercase tracking-widest max-w-[200px]">No messages yet. Send a query to begin.</p>
+                </div>
               ) : (
                 <div className="space-y-6">
-                  {/* Chat Input area */}
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-2 px-4 text-slate-400">
+                  {chatHistory.map((msg, idx) => (
+                    <motion.div 
+                      key={idx}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className={cn(
+                        "flex flex-col max-w-[85%]",
+                        msg.role === 'user' ? "ml-auto items-end" : "mr-auto items-start"
+                      )}
+                    >
+                      <div className={cn(
+                        "p-6 rounded-[2rem] text-sm leading-relaxed",
+                        msg.role === 'user' 
+                          ? "bg-brand-black text-white rounded-tr-none shadow-lg shadow-slate-900/10" 
+                          : "bg-white text-slate-700 rounded-tl-none border border-slate-100 shadow-sm"
+                      )}>
+                        {msg.content}
+                      </div>
+                      <span className="text-[9px] font-black text-slate-300 uppercase tracking-widest mt-2 px-2">
+                        {msg.role === 'user' ? 'You' : 'Assistant'} &bull; {msg.timestamp}
+                      </span>
+                    </motion.div>
+                  ))}
+                  {chatStatus === 'processing' && (
+                    <motion.div 
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="flex flex-col items-start mr-auto"
+                    >
+                      <div className="p-6 bg-white rounded-[2rem] rounded-tl-none border border-slate-100 flex items-center gap-3">
+                        <Loader2 className="animate-spin text-brand" size={18} />
+                        <span className="text-xs font-black uppercase tracking-widest text-slate-400">Processing...</span>
+                      </div>
+                    </motion.div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="border-t border-slate-100 p-8 bg-white">
+              <div className="space-y-6">
+                {/* Chat Input area */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between px-4">
+                    <div className="flex items-center gap-2 text-slate-400">
                       <Mail size={16} />
                       <span className="text-[10px] font-black uppercase tracking-widest">Query Instructions</span>
                     </div>
-                    <div className="relative group">
-                      <textarea
-                        value={instructions}
-                        onChange={(e) => setInstructions(e.target.value)}
-                        placeholder="Type your message or instructions for the gateway..."
+                    {chatHistory.length > 0 && (
+                      <button 
+                        onClick={() => setChatHistory([])}
+                        className="text-[10px] font-black uppercase tracking-widest text-slate-300 hover:text-rose-500 transition-colors flex items-center gap-2"
+                      >
+                        <Trash2 size={12} /> Clear Chat
+                      </button>
+                    )}
+                  </div>
+                  <div className="relative group">
+                    <textarea
+                      value={instructions}
+                      onChange={(e) => setInstructions(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          handleChat();
+                        }
+                      }}
+                      placeholder="Type your message or instructions for the gateway..."
+                      className={cn(
+                        "w-full min-h-[120px] p-8 rounded-[2.5rem] text-slate-700 font-medium placeholder:text-slate-300 resize-none transition-all outline-none bg-slate-50/50 border-2 border-transparent focus:bg-white focus:border-brand/40 shadow-inner"
+                      )}
+                    />
+                    <div className="absolute bottom-6 right-6">
+                      <Sparkles 
+                        size={24} 
                         className={cn(
-                          "w-full min-h-[160px] p-10 rounded-[3rem] text-slate-700 font-medium placeholder:text-slate-300 resize-none transition-all outline-none bg-slate-50/50 border-2 border-transparent focus:bg-white focus:border-brand/40 shadow-inner"
-                        )}
+                          "transition-all duration-500", 
+                          instructions ? "text-brand-orange scale-110" : "text-slate-200"
+                        )} 
                       />
-                      <div className="absolute bottom-10 right-10">
-                        <Sparkles 
-                          size={32} 
-                          className={cn(
-                            "transition-all duration-500", 
-                            instructions ? "text-brand-orange scale-110" : "text-slate-200"
-                          )} 
-                        />
-                      </div>
                     </div>
                   </div>
-
-                  <button
-                    disabled={chatStatus === 'processing' || !instructions}
-                    onClick={handleChat}
-                    className="w-full bg-brand-black text-white h-20 rounded-[1.5rem] flex items-center justify-center gap-4 text-lg shadow-xl hover:bg-brand transition-all disabled:opacity-10 group"
-                  >
-                    {chatStatus === 'processing' ? (
-                      <>
-                        <Loader2 className="animate-spin" size={24} />
-                        <span className="text-xs uppercase font-black tracking-widest">Processing...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles size={24} className={cn(instructions ? "animate-pulse text-white" : "opacity-30")} />
-                        <span className="font-black tracking-tight text-sm uppercase">Dispatch Chat Query</span>
-                        <ArrowRight size={20} className="opacity-30 group-hover:translate-x-3 transition-transform" />
-                      </>
-                    )}
-                  </button>
-
-                  <div className="flex justify-center flex-col items-center gap-1 pt-4 opacity-30">
-                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Context Connector</p>
-                    <p className="text-[9px] font-bold text-slate-900 mono">/api/chat</p>
-                  </div>
                 </div>
-              )}
-            </AnimatePresence>
+
+                <button
+                  disabled={chatStatus === 'processing' || !instructions}
+                  onClick={handleChat}
+                  className="w-full bg-brand-black text-white h-20 rounded-[1.5rem] flex items-center justify-center gap-4 text-lg shadow-xl hover:bg-brand transition-all disabled:opacity-10 group"
+                >
+                  {chatStatus === 'processing' ? (
+                    <>
+                      <Loader2 className="animate-spin" size={24} />
+                      <span className="text-xs uppercase font-black tracking-widest">Processing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles size={24} className={cn(instructions ? "animate-pulse text-white" : "opacity-30")} />
+                      <span className="font-black tracking-tight text-sm uppercase">Dispatch Query</span>
+                      <ArrowRight size={20} className="opacity-30 group-hover:translate-x-3 transition-transform" />
+                    </>
+                  )}
+                </button>
+
+                <div className="flex justify-center flex-col items-center gap-1 pt-4 opacity-30">
+                  <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Context Connector</p>
+                  <p className="text-[9px] font-bold text-slate-900 mono">/api/chat</p>
+                </div>
+              </div>
+            </div>
           </div>
         </section>
 

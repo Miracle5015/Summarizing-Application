@@ -128,6 +128,7 @@ async function startServer() {
       res.json({
         success: true,
         status: response.status,
+        data: response.data,
         message: "Instructions dispatched to chat webhook successfully"
       });
     } catch (error: any) {

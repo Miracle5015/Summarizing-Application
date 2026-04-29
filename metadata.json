@@ -1,5 +1,5 @@
 {
-  "name": "Everything Document",
+  "name": "EverythingDocument",
   "description": "Upload documents to summarize with AI and automatically trigger webhooks with the results.",
   "requestFramePermissions": [],
   "majorCapabilities": []

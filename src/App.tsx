@@ -15,7 +15,8 @@ import {
   CheckCircle2,
   Box,
   Mail,
-  FileDown
+  FileDown,
+  MessageSquare
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import axios from "axios";
@@ -30,25 +31,27 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-type DispatchStatus = 'idle' | 'processing' | 'converting' | 'success' | 'chatting' | 'chat_success' | 'error';
+type DispatchStatus = 'idle' | 'processing' | 'converting' | 'success' | 'error';
 
 export default function App() {
-  const [file, setFile] = useState<{
+  const [uploadFile, setUploadFile] = useState<{
     native: File;
     name: string;
     type: string;
     size: number;
     lastModified: number;
-    isConverted?: boolean;
   } | null>(null);
-  const [instructions, setInstructions] = useState<string>("");
-  const [status, setStatus] = useState<DispatchStatus>('idle');
-  const [error, setError] = useState<string | null>(null);
 
-  const onDrop = useCallback((acceptedFiles: File[]) => {
+  const [instructions, setInstructions] = useState<string>("");
+  const [uploadStatus, setUploadStatus] = useState<DispatchStatus>('idle');
+  const [chatStatus, setChatStatus] = useState<DispatchStatus>('idle');
+  const [error, setError] = useState<string | null>(null);
+  const [hasUploaded, setHasUploaded] = useState(false);
+
+  const onDropUpload = useCallback((acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
       const nativeFile = acceptedFiles[0];
-      setFile({
+      setUploadFile({
         native: nativeFile,
         name: nativeFile.name,
         type: nativeFile.type,
@@ -56,16 +59,12 @@ export default function App() {
         lastModified: nativeFile.lastModified
       });
       setError(null);
-      setStatus('idle');
-      // Set focus to textarea after a short delay for transition
-      setTimeout(() => {
-        document.getElementById('chat-input')?.focus();
-      }, 100);
+      if (uploadStatus === 'success') setUploadStatus('idle');
+      setHasUploaded(false);
     }
-  }, []);
+  }, [uploadStatus]);
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
+  const dropzoneConfig = {
     accept: {
       'application/pdf': ['.pdf'],
       'text/plain': ['.txt'],
@@ -77,28 +76,27 @@ export default function App() {
     },
     maxFiles: 1,
     multiple: false,
-  } as any);
+  };
 
-  const clearFile = () => {
-    setFile(null);
-    setInstructions("");
-    setStatus('idle');
+  const uploadDropzone = useDropzone({ ...dropzoneConfig, onDrop: onDropUpload } as any);
+
+  const clearUploadFile = () => {
+    setUploadFile(null);
+    if (uploadStatus === 'success') setUploadStatus('idle');
     setError(null);
+    setHasUploaded(false);
   };
 
   const convertWordToPdf = async (nativeFile: File): Promise<{ data: string; name: string; size: number }> => {
     try {
       const arrayBuffer = await nativeFile.arrayBuffer();
       
-      // 1. Extract text from DOCX
       const result = await mammoth.extractRawText({ arrayBuffer });
       const text = result.value;
 
-      // 2. Create PDF
       const pdfDoc = await PDFDocument.create();
       const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
       
-      // Basic pagination logic
       const lines = text.split('\n');
       let page = pdfDoc.addPage();
       const { width, height } = page.getSize();
@@ -112,8 +110,6 @@ export default function App() {
           continue;
         }
 
-        // Handle text wrapping briefly
-        const textWidth = font.widthOfTextAtSize(line, fontSize);
         if (y < margin) {
           page = pdfDoc.addPage();
           y = height - margin;
@@ -148,26 +144,25 @@ export default function App() {
   };
 
   const handleDispatch = async () => {
-    if (!file) return;
+    if (!uploadFile) return;
 
-    setStatus('processing');
+    setUploadStatus('processing');
     setError(null);
 
     try {
       let base64Data = "";
-      let finalName = file.name;
-      let finalType = file.type;
-      let finalSize = file.size;
+      let finalName = uploadFile.name;
+      let finalType = uploadFile.type;
+      let finalSize = uploadFile.size;
 
-      // Check if conversion is needed
-      const isWord = file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || 
-                     file.type === 'application/msword' ||
-                     file.name.endsWith('.docx') || 
-                     file.name.endsWith('.doc');
+      const isWord = uploadFile.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || 
+                     uploadFile.type === 'application/msword' ||
+                     uploadFile.name.endsWith('.docx') || 
+                     uploadFile.name.endsWith('.doc');
 
       if (isWord) {
-        setStatus('converting');
-        const converted = await convertWordToPdf(file.native);
+        setUploadStatus('converting');
+        const converted = await convertWordToPdf(uploadFile.native);
         base64Data = converted.data;
         finalName = converted.name;
         finalType = 'application/pdf';
@@ -175,372 +170,330 @@ export default function App() {
       } else {
         const reader = new FileReader();
         base64Data = await new Promise((resolve, reject) => {
-          reader.readAsDataURL(file.native);
+          reader.readAsDataURL(uploadFile.native);
           reader.onload = () => resolve((reader.result as string).split(',')[1]);
           reader.onerror = reject;
         });
       }
       
-      setStatus('processing');
+      setUploadStatus('processing');
       await axios.post("/api/dispatch", {
         base64Data,
         mimeType: finalType,
         fileName: finalName,
         fileSize: finalSize,
-        lastModified: new Date(file.lastModified).toISOString()
+        lastModified: new Date(uploadFile.lastModified).toISOString()
       });
 
-      setStatus('success');
+      setUploadStatus('success');
+      setHasUploaded(true);
     } catch (err: any) {
       console.error("Dispatch Error:", err);
-      setError(err.response?.data?.error || err.message || "Failed to forward document. Please check server logs.");
-      setStatus('error');
+      const serverError = err.response?.data;
+      setError(serverError?.details || serverError?.error || err.message || "Failed to forward document.");
+      setUploadStatus('error');
     }
   };
 
   const handleChat = async () => {
-    if (!file && !instructions) return;
+    if (!instructions) return;
 
-    setStatus('processing');
+    setChatStatus('processing');
     setError(null);
 
     try {
-      let base64Data = null;
-      let finalName = file?.name || "none";
-      let finalType = file?.type || "none";
-      let finalSize = file?.size || 0;
-
-      if (file) {
-        const isWord = file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || 
-                       file.type === 'application/msword' ||
-                       file.name.endsWith('.docx') || 
-                       file.name.endsWith('.doc');
-
-        if (isWord) {
-          setStatus('converting');
-          const converted = await convertWordToPdf(file.native);
-          base64Data = converted.data;
-          finalName = converted.name;
-          finalType = 'application/pdf';
-          finalSize = converted.size;
-        } else {
-          const reader = new FileReader();
-          base64Data = await new Promise((resolve, reject) => {
-            reader.readAsDataURL(file.native);
-            reader.onload = () => resolve((reader.result as string).split(',')[1]);
-            reader.onerror = reject;
-          });
-        }
-      }
-      
-      setStatus('processing');
+      setChatStatus('processing');
       await axios.post("/api/chat", {
-        base64Data,
-        mimeType: finalType,
-        fileName: finalName,
-        fileSize: finalSize,
-        lastModified: file ? new Date(file.lastModified).toISOString() : new Date().toISOString(),
         instructions: instructions
       });
 
-      setStatus('chat_success');
+      setChatStatus('success');
       setInstructions("");
     } catch (err: any) {
       console.error("Chat Error:", err);
-      setError(err.response?.data?.error || err.message || "Failed to forward instructions. Please check server logs.");
-      setStatus('error');
+      const serverError = err.response?.data;
+      setError(serverError?.details || serverError?.error || err.message || "Failed to forward instructions.");
+      setChatStatus('error');
     }
   };
 
   return (
-    <div className="min-h-screen bg-bg text-text-main flex flex-col p-4 md:p-12 font-sans">
+    <div className="min-h-screen bg-[#fcfcfd] text-slate-900 flex flex-col p-4 md:p-12 font-sans overflow-x-hidden">
       
       {/* Navigation */}
-      <nav className="max-w-4xl w-full mx-auto flex justify-between items-center mb-16">
+      <nav className="max-w-5xl w-full mx-auto flex justify-between items-center mb-12">
         <div className="flex items-center gap-4 group">
-          <div className="w-12 h-12 bg-brand rounded-2xl flex items-center justify-center shadow-lg shadow-brand/20 group-hover:scale-110 transition-transform">
-            <Layers className="text-white" size={24} />
+          <div className="relative">
+            <div className="w-14 h-14 bg-brand-black rounded-[20px] flex items-center justify-center shadow-2xl group-hover:scale-105 transition-transform duration-500 overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-br from-brand/20 to-transparent opacity-50" />
+              <Layers className="text-white relative z-10" size={28} />
+            </div>
+            <div className="absolute -top-1 -right-1 w-5 h-5 bg-brand-orange rounded-full flex items-center justify-center shadow-lg border-2 border-white">
+              <Sparkles className="text-white" size={10} />
+            </div>
           </div>
           <div>
-            <h1 className="text-xl font-black tracking-tight leading-none text-slate-900 uppercase">Everything Document</h1>
-            <p className="text-[10px] uppercase tracking-[0.2em] font-bold text-slate-400 mt-1">Integration Gateway</p>
+            <h1 className="text-2xl font-black tracking-tighter leading-none text-brand-black flex items-center gap-1">
+              Everything<span className="text-brand">Document</span>
+            </h1>
+            <p className="text-[10px] uppercase tracking-[0.2em] font-black text-slate-400 mt-1 flex items-center gap-2">
+              <span className="w-4 h-[1px] bg-brand-orange" /> Precision Context Engine
+            </p>
           </div>
         </div>
-        <div className="hidden md:flex items-center gap-6">
-          <Fingerprint size={20} className="text-slate-300" />
+        <div className="hidden md:flex items-center gap-8">
+          <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
+            <CheckCircle2 size={12} className="text-brand-orange" />
+            <span>AI Verified</span>
+          </div>
         </div>
       </nav>
 
-      <main className="max-w-4xl w-full mx-auto flex-1 flex flex-col items-center">
+      <main className="max-w-5xl w-full mx-auto space-y-8 pb-20">
         
-        {/* Simplified Site Heading */}
-        <div className="text-center mb-12 max-w-2xl px-4">
-          <h2 className="text-3xl md:text-4xl font-black text-slate-900 tracking-tight mb-4">
-            Automated Document Integration.
-          </h2>
-          <p className="text-slate-500 font-medium leading-relaxed">
-            Securely upload and dispatch your documents. Word files are automatically converted to PDF for seamless processing.
-          </p>
-        </div>
-
-        <div className="w-full space-y-8">
-          
-          {/* Main Workzone */}
-          <section className="panel-white overflow-hidden relative w-full shadow-2xl shadow-slate-200/50">
-            <div className="absolute top-0 right-0 p-8 opacity-5">
-              <Box size={120} />
-            </div>
-
-            <header className="mb-8 relative z-10 flex justify-between items-center">
-              <div>
-                <span className="label-caps">Process</span>
-                <h2 className="text-2xl font-bold tracking-tight">Document Processing</h2>
+        {/* Section 1: Upload (TOP) */}
+        <section className="space-y-4">
+          <div className="flex items-center justify-between px-2">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-brand-black rounded-lg text-white">
+                <Upload size={18} />
               </div>
-              {(status === 'success' || status === 'chat_success') && (
-                <button 
-                  onClick={clearFile}
-                  className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-slate-400 hover:text-brand transition-colors"
-                >
-                  <RefreshCcw size={14} />
-                  New Upload
-                </button>
-              )}
-            </header>
+              <h2 className="text-xs font-black uppercase tracking-[0.3em] text-brand-black">Upload Document</h2>
+            </div>
+            {hasUploaded && (
+              <div className="flex items-center gap-2 text-[10px] font-black text-emerald-500 uppercase tracking-widest bg-emerald-50 px-4 py-2 rounded-full border border-emerald-100">
+                <CheckCircle2 size={12} />
+                <span>Uploaded</span>
+              </div>
+            )}
+          </div>
 
-            <div className="space-y-8 relative z-10">
-              <AnimatePresence mode="wait">
-                {status === 'idle' || status === 'processing' || status === 'converting' ? (
-                  <motion.div 
-                    key="upload-zone"
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    className="space-y-8"
-                  >
-                    {!file ? (
+          <div className={cn(
+            "panel-white border-2 border-transparent transition-all duration-500",
+            uploadStatus === 'success' ? "border-emerald-500/20 shadow-emerald-500/10" : "bg-white shadow-xl shadow-slate-100"
+          )}>
+            <AnimatePresence mode="wait">
+              {uploadStatus === 'success' ? (
+                <motion.div 
+                  initial={{ opacity: 0, scale: 0.98 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="flex flex-col items-center py-12"
+                >
+                  <div className="w-20 h-20 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center mb-6 shadow-inner border border-emerald-100">
+                    <CheckCircle2 size={40} />
+                  </div>
+                  <h3 className="text-2xl font-black mb-2 text-brand-black">Upload Successful</h3>
+                  <p className="text-sm font-medium text-slate-400 mb-8 max-w-xs text-center leading-relaxed">
+                    Your document has been processed and synced. Use the chat gateway below to interact with the content.
+                  </p>
+                  <div className="flex gap-4">
+                    <button onClick={() => setUploadStatus('idle')} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-brand bg-brand/5 px-6 py-3 rounded-xl hover:bg-brand/10 transition-all">
+                      <FileText size={14} /> View File
+                    </button>
+                    <button onClick={clearUploadFile} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-900 transition-colors px-6 py-3">
+                      <RefreshCcw size={14} /> New Upload
+                    </button>
+                  </div>
+                </motion.div>
+              ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
+                  {/* Dropzone Area */}
+                  <div className="space-y-6">
+                    {!uploadFile ? (
                       <div 
-                        {...getRootProps()} 
+                        {...uploadDropzone.getRootProps()} 
                         className={cn(
-                          "border-2 border-dashed rounded-[2.5rem] h-56 flex flex-col items-center justify-center text-center cursor-pointer transition-all",
-                          isDragActive ? "border-brand bg-brand-soft" : "border-slate-200 hover:border-brand/40 group bg-slate-100/30"
+                          "border-2 border-dashed rounded-[2.5rem] p-12 flex flex-col items-center justify-center text-center cursor-pointer transition-all h-[320px]",
+                          uploadDropzone.isDragActive ? "border-brand bg-brand/5 scale-[0.99]" : "border-slate-100 hover:border-brand/30 bg-slate-50/50 hover:bg-white overflow-hidden relative group"
                         )}
                       >
-                        <input {...getInputProps()} />
-                        <div className="w-16 h-16 bg-white rounded-3xl shadow-sm border border-slate-100 flex items-center justify-center mb-4 group-hover:-translate-y-2 transition-transform duration-300">
-                          <Upload size={28} className="text-brand" />
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-brand-orange/5 rounded-full -mr-16 -mt-16 transition-transform group-hover:scale-150" />
+                        <input {...uploadDropzone.getInputProps()} />
+                        <div className="w-20 h-20 bg-white rounded-3xl shadow-sm border border-slate-100 flex items-center justify-center mb-6 relative z-10">
+                          <Upload size={32} className="text-brand" />
                         </div>
-                        <p className="font-bold text-slate-700 uppercase tracking-widest text-xs">Start by Attaching a Document</p>
-                        <p className="text-[10px] text-slate-400 mt-1 font-bold italic uppercase tracking-wider">PDF, DOCX, XLSX, CSV, TXT</p>
+                        <h3 className="font-bold text-slate-900 text-lg relative z-10">Select Document</h3>
+                        <p className="text-[10px] text-slate-300 mt-2 font-black uppercase tracking-[0.2em] relative z-10">PDF, Word, CSV, Excel, TXT</p>
                       </div>
                     ) : (
-                      <div className="p-8 rounded-[2.5rem] bg-slate-50 border border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-6 shadow-sm">
-                        <div className="flex items-center gap-6">
-                          <div className="w-16 h-16 bg-white rounded-2xl shadow-sm flex items-center justify-center text-brand border border-slate-100 shadow-xl shadow-brand/10">
-                            <FileText size={32} />
+                      <div className="p-8 rounded-[2.5rem] bg-slate-50 border border-slate-100 h-[320px] flex flex-col">
+                        <div className="flex-1 flex flex-col items-center justify-center text-center">
+                          <div className="w-20 h-20 bg-white rounded-3xl shadow-xl shadow-slate-200/50 flex items-center justify-center mb-6 text-slate-400">
+                            <FileText size={40} />
                           </div>
-                          <div>
-                            <p className="text-lg font-bold text-slate-800 break-all">{file?.name}</p>
-                            <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1">
-                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest bg-white py-0.5 px-2 rounded-md border border-slate-100 shadow-sm">
-                                {file ? (file.size / 1024 / 1024).toFixed(2) : 0} MB
-                              </p>
-                            </div>
-                          </div>
+                          <h3 className="text-xl font-bold text-slate-900 truncate max-w-full px-4">{uploadFile.name}</h3>
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">
+                            {(uploadFile.size / 1024 / 1024).toFixed(2)} MB • READY
+                          </p>
                         </div>
                         <button 
-                          onClick={clearFile}
-                          className="w-12 h-12 rounded-2xl hover:bg-red-50 hover:text-red-500 transition-all flex items-center justify-center text-slate-300 border border-slate-200 hover:border-red-100"
+                          onClick={clearUploadFile}
+                          className="mt-4 flex items-center justify-center gap-2 py-4 px-6 rounded-2xl bg-white border border-rose-100 text-rose-400 text-[10px] font-black uppercase tracking-widest hover:bg-rose-50 hover:text-rose-600 transition-all"
                         >
-                          <Trash2 size={24} />
+                          <Trash2 size={14} /> Remove File
                         </button>
                       </div>
                     )}
+                  </div>
 
-                    <div className="w-full">
-                      <button
-                        disabled={status === 'processing' || status === 'converting' || !file}
-                        onClick={handleDispatch}
-                        className="modern-btn w-full flex items-center justify-center gap-3 h-24 text-xl shadow-2xl shadow-brand/30 group bg-slate-900 border-none disabled:opacity-20 disabled:cursor-not-allowed"
-                      >
-                        {status === 'processing' ? (
-                          <>
-                            <Loader2 className="animate-spin" size={28} />
-                            <span>SUBMITTING...</span>
-                          </>
-                        ) : status === 'converting' ? (
-                          <>
-                            <RefreshCcw className="animate-spin" size={28} />
-                            <span>CONVERTING...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Zap size={24} className={cn(file ? "text-brand animate-pulse" : "text-white/40")} />
-                            <span>SEND FOR PROCESSING</span>
-                            <ArrowRight size={22} className="opacity-40 group-hover:translate-x-2 transition-transform" />
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </motion.div>
-                ) : status === 'chatting' ? (
-                  <motion.div 
-                    key="chat-zone"
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    className="space-y-8"
-                  >
-                    <div className="flex items-center justify-between bg-slate-50 p-4 rounded-3xl border border-slate-100">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-white rounded-xl shadow-sm flex items-center justify-center text-brand">
-                          <FileText size={20} />
-                        </div>
-                        <span className="text-xs font-bold text-slate-600 truncate max-w-[200px]">{file?.name}</span>
+                  {/* Submission Info Area */}
+                  <div className="bg-slate-50/50 rounded-[2.5rem] p-8 border border-slate-100 h-full lg:min-h-[320px] flex flex-col justify-center">
+                    <div className="flex-1 flex flex-col justify-center">
+                      <div className="flex items-center gap-2 mb-6">
+                        <Zap size={16} className="text-brand-orange" />
+                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Document Sync</span>
                       </div>
-                      <span className="text-[10px] bg-emerald-100 text-emerald-600 px-3 py-1 rounded-full font-black uppercase tracking-widest">Active Context</span>
-                    </div>
-
-                    <div className="space-y-4">
-                      <div className="flex items-center gap-2 px-4 text-brand">
-                        <Mail size={16} />
-                        <span className="text-[10px] font-black uppercase tracking-widest">Message Documentation</span>
-                      </div>
-                      <div className="relative group">
-                        <textarea
-                          id="chat-input"
-                          autoFocus
-                          value={instructions}
-                          onChange={(e) => setInstructions(e.target.value)}
-                          placeholder="What would you like to do with this document? (e.g. 'Summarize key points', 'Extract dates')"
-                          className="w-full min-h-[220px] p-8 rounded-[2.5rem] bg-white border-2 border-slate-100 focus:border-brand/40 focus:ring-4 focus:ring-brand/5 transition-all outline-none text-slate-700 font-medium placeholder:text-slate-300 resize-none"
-                        />
-                         <div className="absolute bottom-8 right-8">
-                           <Sparkles size={28} className={cn("transition-colors duration-500", instructions ? "text-brand" : "text-slate-100")} />
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="w-full">
-                      <button
-                        disabled={status === 'processing' || !instructions}
-                        onClick={handleChat}
-                        className="modern-btn w-full flex items-center justify-center gap-3 h-20 text-md shadow-2xl shadow-brand/30 group bg-slate-900 border-none disabled:opacity-20"
-                      >
-                        {status === 'processing' ? (
-                          <>
-                            <Loader2 className="animate-spin" size={24} />
-                            <span>SENDING MESSAGE...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Sparkles size={22} className={instructions ? "animate-pulse text-brand" : ""} />
-                            <span>SEND TO AUTOMATION</span>
-                            <ArrowRight size={20} className="hidden lg:block opacity-40 group-hover:translate-x-2 transition-transform" />
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </motion.div>
-                ) : ( (status === 'success' || status === 'chat_success') && (
-                  <motion.div 
-                    key="success"
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="p-12 text-center space-y-6"
-                  >
-                    <div className="inline-flex w-24 h-24 bg-emerald-50 text-emerald-500 rounded-full items-center justify-center mb-4 shadow-inner">
-                      <CheckCircle2 size={48} />
-                    </div>
-                    <div>
-                      <h3 className="text-3xl font-black text-slate-900 tracking-tight">
-                        {status === 'chat_success' ? "Instructions Sent" : "Process Successful"}
-                      </h3>
-                      <p className="text-slate-400 font-bold uppercase tracking-[0.2em] text-[10px] mt-2 italic">
-                        {status === 'chat_success' ? "Message & Context received by gateway" : "Document dispatched for processing"}
+                      
+                      <p className="text-sm text-slate-500 leading-relaxed font-medium">
+                        Files uploaded here are processed and synced to the automation engine for immediate context availability.
                       </p>
                     </div>
-                    <div className="pt-4 flex flex-col items-center gap-2">
-                       <p className="text-sm font-medium text-slate-500 max-w-xs transition-colors text-center">
-                        {status === 'chat_success' 
-                          ? "Your instructions and document have been sent to the chat automation gateway for handling."
-                          : "The document has been securely received and forwarded to your automation gateway."}
-                       </p>
-                       
-                       {status === 'success' ? (
-                         <div className="flex flex-col gap-3 w-full mt-6">
-                           <button 
-                             onClick={() => setStatus('chatting')}
-                             className="px-10 py-5 bg-brand text-white rounded-2xl font-bold uppercase tracking-widest text-xs hover:bg-brand/90 transition-all flex items-center justify-center gap-3 shadow-xl hover:-translate-y-1"
-                           >
-                             <Sparkles size={16} />
-                             Proceed to Chat
-                           </button>
-                           <button 
-                             onClick={clearFile}
-                             className="text-[10px] font-bold text-slate-400 uppercase tracking-widest hover:text-slate-600 transition-colors"
-                           >
-                             Or Upload Another
-                           </button>
-                         </div>
-                       ) : (
-                         <button 
-                           onClick={clearFile}
-                           className="mt-6 px-10 py-5 bg-slate-900 text-white rounded-2xl font-bold uppercase tracking-widest text-xs hover:bg-brand transition-all flex items-center gap-3 shadow-xl hover:-translate-y-1"
-                         >
-                           <RefreshCcw size={16} />
-                           New Message
-                         </button>
-                       )}
-                    </div>
-                  </motion.div>
-                ))}
-              </AnimatePresence>
 
-              {error && (
-                <motion.div 
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  className="p-6 bg-rose-50 border border-rose-100 rounded-[2rem] flex items-start gap-4"
-                >
-                  <AlertCircle className="text-rose-500 mt-1 shrink-0" size={20} />
-                  <div>
-                    <h4 className="text-sm font-bold text-rose-800 uppercase tracking-wide">Gateway Error</h4>
-                    <p className="text-xs text-rose-600 mt-1 leading-relaxed font-medium">{error}</p>
+                    <button
+                      disabled={uploadStatus === 'processing' || uploadStatus === 'converting' || !uploadFile}
+                      onClick={handleDispatch}
+                      className="w-full mt-8 bg-brand-black text-white h-20 rounded-[1.5rem] flex items-center justify-center gap-3 font-black uppercase tracking-widest text-xs hover:bg-brand transition-all shadow-xl shadow-slate-900/10 disabled:opacity-20 group"
+                    >
+                      {uploadStatus === 'processing' ? (
+                        <>
+                          <Loader2 className="animate-spin" size={20} />
+                          <span>Processing...</span>
+                        </>
+                      ) : uploadStatus === 'converting' ? (
+                        <>
+                          <RefreshCcw className="animate-spin" size={20} />
+                          <span>Preparing...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Upload size={18} className={cn(uploadFile ? "text-brand-orange" : "opacity-40")} />
+                          <span>Upload Document</span>
+                          <ArrowRight size={16} className="opacity-40 group-hover:translate-x-2 transition-transform" />
+                        </>
+                      )}
+                    </button>
                   </div>
-                </motion.div>
-              )}
-            </div>
-          </section>
-
-          {/* Tips Section */}
-          {status !== 'success' && status !== 'processing' && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {[
-                { title: "Conversion", icon: FileDown, text: "Word (.docx) files are automatically converted to PDF." },
-                { title: "Metadata", icon: Box, text: "Includes file size, type, and modification dates." },
-                { title: "Security", icon: Fingerprint, text: "Encrypted headers with signature validation." }
-              ].map((tip, i) => (
-                <div key={i} className="p-6 rounded-3xl bg-white/50 border border-slate-100 flex flex-col items-center text-center group hover:bg-white transition-colors duration-300">
-                  <div className="w-10 h-10 bg-white rounded-xl shadow-sm border border-slate-100 flex items-center justify-center mb-3 text-brand text-opacity-80 group-hover:scale-110 transition-transform">
-                    <tip.icon size={18} />
-                  </div>
-                  <h4 className="text-xs font-black uppercase tracking-widest text-slate-800 mb-1">{tip.title}</h4>
-                  <p className="text-[10px] text-slate-400 font-medium leading-relaxed">{tip.text}</p>
                 </div>
-              ))}
+              )}
+            </AnimatePresence>
+          </div>
+        </section>
+
+        {/* Section 2: Chat (BOTTOM) */}
+        <section className="space-y-4">
+          <div className="flex items-center gap-3 px-2">
+            <div className="p-2 bg-brand rounded-lg text-white">
+              <MessageSquare size={18} />
             </div>
-          )}
-        </div>
+            <h2 className="text-xs font-black uppercase tracking-[0.3em] text-brand-black">Chat with document</h2>
+          </div>
+
+          <div className={cn(
+            "panel-white border-2 border-transparent transition-all duration-500 bg-white shadow-xl shadow-slate-100",
+            chatStatus === 'success' ? "border-emerald-500/20 shadow-emerald-500/10" : ""
+          )}>
+            <AnimatePresence mode="wait">
+              {chatStatus === 'success' ? (
+                <motion.div 
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="flex flex-col items-center py-12"
+                >
+                  <div className="w-20 h-20 bg-brand text-white rounded-full flex items-center justify-center mb-6 shadow-xl shadow-brand/20">
+                    <Sparkles size={40} />
+                  </div>
+                  <h3 className="text-2xl font-black mb-2 text-brand-black">Query Dispatched</h3>
+                  <p className="text-sm font-medium text-slate-400 mb-8 max-w-xs text-center leading-relaxed">
+                    Your document and instructions have been sent to the chat gateway.
+                  </p>
+                  <button onClick={() => setChatStatus('idle')} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-brand hover:text-slate-900 transition-colors">
+                    <RefreshCcw size={14} /> Another Query
+                  </button>
+                </motion.div>
+              ) : (
+                <div className="space-y-6">
+                  {/* Chat Input area */}
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2 px-4 text-slate-400">
+                      <Mail size={16} />
+                      <span className="text-[10px] font-black uppercase tracking-widest">Query Instructions</span>
+                    </div>
+                    <div className="relative group">
+                      <textarea
+                        value={instructions}
+                        onChange={(e) => setInstructions(e.target.value)}
+                        placeholder="Type your message or instructions for the gateway..."
+                        className={cn(
+                          "w-full min-h-[160px] p-10 rounded-[3rem] text-slate-700 font-medium placeholder:text-slate-300 resize-none transition-all outline-none bg-slate-50/50 border-2 border-transparent focus:bg-white focus:border-brand/40 shadow-inner"
+                        )}
+                      />
+                      <div className="absolute bottom-10 right-10">
+                        <Sparkles 
+                          size={32} 
+                          className={cn(
+                            "transition-all duration-500", 
+                            instructions ? "text-brand-orange scale-110" : "text-slate-200"
+                          )} 
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    disabled={chatStatus === 'processing' || !instructions}
+                    onClick={handleChat}
+                    className="w-full bg-brand-black text-white h-20 rounded-[1.5rem] flex items-center justify-center gap-4 text-lg shadow-xl hover:bg-brand transition-all disabled:opacity-10 group"
+                  >
+                    {chatStatus === 'processing' ? (
+                      <>
+                        <Loader2 className="animate-spin" size={24} />
+                        <span className="text-xs uppercase font-black tracking-widest">Processing...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles size={24} className={cn(instructions ? "animate-pulse text-white" : "opacity-30")} />
+                        <span className="font-black tracking-tight text-sm uppercase">Dispatch Chat Query</span>
+                        <ArrowRight size={20} className="opacity-30 group-hover:translate-x-3 transition-transform" />
+                      </>
+                    )}
+                  </button>
+
+                  <div className="flex justify-center flex-col items-center gap-1 pt-4 opacity-30">
+                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Context Connector</p>
+                    <p className="text-[9px] font-bold text-slate-900 mono">/api/chat</p>
+                  </div>
+                </div>
+              )}
+            </AnimatePresence>
+          </div>
+        </section>
+
+        {/* Global Error Banner */}
+        {error && (
+          <motion.div 
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="p-6 bg-rose-50 border border-rose-100 rounded-[2rem] flex items-start gap-4 mx-auto max-w-lg"
+          >
+            <AlertCircle className="text-rose-500 mt-1 shrink-0" size={20} />
+            <div>
+              <h4 className="text-sm font-bold text-rose-800 uppercase tracking-wide">Gateway Warning</h4>
+              <p className="text-xs text-rose-600 mt-1 leading-relaxed font-medium">{error}</p>
+            </div>
+          </motion.div>
+        )}
+
       </main>
 
-      {/* Footer */}
-      <footer className="max-w-4xl w-full mx-auto mt-12 py-8 border-t border-slate-100 flex flex-col md:flex-row justify-between items-center text-[10px] font-bold text-slate-300 uppercase tracking-[0.2em] gap-4">
-        <div className="flex items-center gap-6">
-          <span>&copy; 2026 Everything Document</span>
+      <footer className="max-w-5xl w-full mx-auto mt-auto py-12 border-t border-slate-100 flex flex-col md:flex-row justify-between items-center text-[10px] font-bold text-slate-300 uppercase tracking-[0.2em] gap-8">
+        <div className="flex items-center gap-8">
+          <span className="text-slate-900">ENCRYPTED</span>
+          <span>&bull;</span>
+          <span>PROTOCOL v3.2.0</span>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="w-1.5 h-1.5 bg-brand rounded-full shadow-[0_0_8px_rgba(59,130,246,0.5)]" />
-          <span>v3.2.0 PDF-CONVERTER ACTIVE</span>
+        <div className="flex items-center gap-3 group">
+          <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_12px_rgba(16,185,129,0.5)]" />
+          <span className="group-hover:text-slate-900 transition-colors">Integration Active</span>
         </div>
       </footer>
     </div>

@@ -24,9 +24,10 @@ async function startServer() {
     const webhookSecret = process.env.WEBHOOK_SECRET || 'everything-document-proxy';
     const userId = "mimie5015@gmail.com";
 
-    if (!n8nUrl) {
-      return res.status(500).json({ 
-        error: "N8N_WEBHOOK_URL is not configured in the server environment." 
+    if (!n8nUrl || n8nUrl.includes('your-n8n-instance.com')) {
+      return res.status(400).json({ 
+        error: "n8n Webhook URL is not configured.",
+        details: "Please set N8N_WEBHOOK_URL in the application settings with a valid n8n or automation endpoint."
       });
     }
 
@@ -62,11 +63,19 @@ async function startServer() {
         message: "Binary document dispatched to n8n successfully"
       });
     } catch (error: any) {
-      console.error("n8n Dispatch Error:", error.message);
+      let errorMessage = "Failed to forward document to n8n";
+      let details = error.message;
+
+      if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND') {
+        errorMessage = "Webhook Connection Refused";
+        details = `The server could not reach the n8n webhook at: ${n8nUrl}. If you are using a local n8n instance (127.0.0.1), please use a tunnel (like ngrok) or a cloud-hosted n8n instance as this server cannot reach your local machine's ports directly.`;
+      }
+
+      console.error("n8n Dispatch Error:", details);
       res.status(500).json({
         success: false,
-        error: "Failed to forward document to n8n",
-        details: error.message
+        error: errorMessage,
+        details: details
       });
     }
   });
@@ -79,9 +88,10 @@ async function startServer() {
     const webhookSecret = process.env.WEBHOOK_SECRET || 'everything-document-proxy';
     const userId = "mimie5015@gmail.com";
 
-    if (!chatUrl) {
-      return res.status(500).json({ 
-        error: "CHAT_WEBHOOK_URL is not configured in the server environment." 
+    if (!chatUrl || chatUrl.includes('your-n8n-instance.com')) {
+      return res.status(400).json({ 
+        error: "Chat Webhook URL is not configured.",
+        details: "Please set CHAT_WEBHOOK_URL in the application settings with a valid n8n or automation endpoint."
       });
     }
 
@@ -121,11 +131,19 @@ async function startServer() {
         message: "Instructions dispatched to chat webhook successfully"
       });
     } catch (error: any) {
-      console.error("Chat Dispatch Error:", error.message);
+      let errorMessage = "Failed to forward instructions to chat webhook";
+      let details = error.message;
+
+      if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND') {
+        errorMessage = "Chat Webhook Connection Refused";
+        details = `The server could not reach the chat webhook at: ${chatUrl}. Check your endpoint configuration and ensure it is publicly accessible.`;
+      }
+
+      console.error("Chat Dispatch Error:", details);
       res.status(500).json({
         success: false,
-        error: "Failed to forward instructions to chat webhook",
-        details: error.message
+        error: errorMessage,
+        details: details
       });
     }
   });

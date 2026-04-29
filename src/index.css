@@ -1,16 +1,16 @@
 @import "tailwindcss";
 
 @theme {
-  --color-brand: #3B82F6;
-  --color-brand-dark: #1D4ED8;
-  --color-brand-soft: #EFF6FF;
-  --color-bg: #F8FAFC;
-  --color-surface: #FFFFFF;
-  --color-surface-soft: #F1F5F9;
-  --color-accent: #0284C7;
-  --color-border-theme: #E2E8F0;
-  --color-text-main: #0F172A;
-  --color-text-muted: #64748B;
+  --color-brand: #2563eb;
+  --color-brand-orange: #f97316;
+  --color-brand-black: #020617;
+  --color-brand-soft: #eff6ff;
+  --color-bg: #f8fafc;
+  --color-surface: #ffffff;
+  --color-surface-soft: #f1f5f9;
+  --color-border-theme: #e2e8f0;
+  --color-text-main: #0f172a;
+  --color-text-muted: #64748b;
   
   --font-display: "Inter", system-ui, sans-serif;
   --radius-xl: 1.5rem;
@@ -36,7 +36,7 @@
 }
 
 .modern-btn {
-  @apply bg-brand text-white px-8 py-4 rounded-2xl font-bold transition-all duration-300 hover:bg-brand-dark hover:shadow-xl hover:shadow-brand/20 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none;
+  @apply bg-brand text-white px-8 py-4 rounded-2xl font-bold transition-all duration-300 hover:bg-brand-black hover:shadow-xl hover:shadow-brand/20 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none;
 }
 
 .modern-input {

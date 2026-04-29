@@ -32,6 +32,9 @@ async function startServer() {
     }
 
     try {
+      if (!SUPABASE_JWT_SECRET) {
+        throw new Error("SUPABASE_JWT_SECRET is not defined");
+      }
       // Supabase JWTs are signed with the project's JWT Secret
       const verified: any = jwt.verify(token, SUPABASE_JWT_SECRET);
       req.user = {
@@ -39,15 +42,41 @@ async function startServer() {
         email: verified.email
       };
       next();
-    } catch (err) {
-      console.error("JWT Verification Error:", err);
-      res.status(401).json({ error: "Invalid or expired session" });
+    } catch (err: any) {
+      console.error("JWT Verification Error:", err.message);
+      const isSignatureError = err.name === 'JsonWebTokenError' && err.message.includes('signature');
+      res.status(401).json({ 
+        error: isSignatureError ? "Authentication Secret Mismatch. Check your SUPABASE_JWT_SECRET." : "Invalid or expired session",
+        details: err.message
+      });
     }
   };
 
   // Auth helper for the client to verify cookie status
   app.get("/api/auth/me", authenticateToken, (req: any, res) => {
     res.json({ user: req.user });
+  });
+
+  // System Config Status (Check if variables are set without revealing values)
+  app.get("/api/system/status", (req, res) => {
+    const isSet = (val: string | undefined) => !!val && !val.includes('your-') && !val.includes('placeholder');
+    
+    const status = {
+      supabaseUrl: isSet(process.env.VITE_SUPABASE_URL),
+      supabaseKey: isSet(process.env.VITE_SUPABASE_ANON_KEY),
+      supabaseSecret: isSet(process.env.SUPABASE_JWT_SECRET),
+      n8nUrl: isSet(process.env.N8N_WEBHOOK_URL),
+      chatUrl: isSet(process.env.CHAT_WEBHOOK_URL),
+      // Raw existence checks
+      env: {
+        VITE_SUPABASE_URL: !!process.env.VITE_SUPABASE_URL,
+        VITE_SUPABASE_ANON_KEY: !!process.env.VITE_SUPABASE_ANON_KEY,
+        SUPABASE_JWT_SECRET: !!process.env.SUPABASE_JWT_SECRET,
+        N8N_WEBHOOK_URL: !!process.env.N8N_WEBHOOK_URL,
+        CHAT_WEBHOOK_URL: !!process.env.CHAT_WEBHOOK_URL,
+      }
+    };
+    res.json(status);
   });
 
   // n8n Dispatch Route (Direct Upload) - Protected

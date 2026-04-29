@@ -56,6 +56,14 @@ export default function App() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
+  const [systemStatus, setSystemStatus] = useState<{
+    supabaseUrl: boolean;
+    supabaseKey: boolean;
+    supabaseSecret: boolean;
+    n8nUrl: boolean;
+    chatUrl: boolean;
+    env: Record<string, boolean>;
+  } | null>(null);
 
   const [uploadFile, setUploadFile] = useState<{
     native: File;
@@ -70,7 +78,9 @@ export default function App() {
   const [uploadStatus, setUploadStatus] = useState<DispatchStatus>('idle');
   const [chatStatus, setChatStatus] = useState<DispatchStatus>('idle');
   const [error, setError] = useState<string | null>(null);
+  const [errorDetails, setErrorDetails] = useState<string | null>(null);
   const [hasUploaded, setHasUploaded] = useState(false);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
   const chatContainerRef = useRef<HTMLDivElement>(null);
 
   // Setup Axios Interceptor for Supabase Auth
@@ -89,6 +99,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    checkSystemStatus();
     if (!isSupabaseConfigured) {
       setAuthLoading(false);
       return;
@@ -119,6 +130,15 @@ export default function App() {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  const checkSystemStatus = async () => {
+    try {
+      const response = await axios.get("/api/system/status");
+      setSystemStatus(response.data);
+    } catch (err) {
+      console.error("Failed to fetch system status");
+    }
+  };
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -390,16 +410,33 @@ export default function App() {
           </div>
 
           <div className="bg-white rounded-[3rem] p-10 shadow-2xl shadow-slate-200/50 border border-slate-100 flex flex-col gap-8 relative overflow-hidden">
-            {!isSupabaseConfigured && (
-              <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex gap-3 items-start">
-                <div className="bg-amber-100 p-2 rounded-lg text-amber-600">
-                  <Lock size={16} />
+            {(!isSupabaseConfigured || (systemStatus && !systemStatus.supabaseSecret)) && (
+              <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6 flex flex-col gap-4">
+                <div className="flex gap-4 items-start">
+                  <div className="bg-amber-100 p-2 rounded-lg text-amber-600">
+                    <Lock size={16} />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-black text-amber-900 uppercase tracking-widest leading-none mt-1">Auth Protocol Incomplete</p>
+                    <p className="text-[10px] text-amber-700 font-medium leading-relaxed">
+                      Your Supabase integration is missing critical keys. Authentication cannot proceed.
+                    </p>
+                  </div>
                 </div>
-                <div className="space-y-1">
-                  <p className="text-[10px] font-black text-amber-900 uppercase tracking-widest leading-none mt-1">Configuration Needed</p>
-                  <p className="text-[10px] text-amber-700 font-medium leading-relaxed">
-                    Please provide your <strong>Supabase</strong> credentials in the environment settings to enable authentication.
-                  </p>
+                
+                <div className="grid grid-cols-1 gap-2">
+                  <div className="flex items-center justify-between text-[8px] font-black uppercase tracking-widest px-3 py-2 bg-white/50 rounded-lg">
+                    <span>VITE_SUPABASE_URL</span>
+                    {systemStatus?.supabaseUrl ? <CheckCircle2 size={10} className="text-emerald-500" /> : <Box size={10} className="text-slate-300" />}
+                  </div>
+                  <div className="flex items-center justify-between text-[8px] font-black uppercase tracking-widest px-3 py-2 bg-white/50 rounded-lg">
+                    <span>VITE_SUPABASE_ANON_KEY</span>
+                    {systemStatus?.supabaseKey ? <CheckCircle2 size={10} className="text-emerald-500" /> : <Box size={10} className="text-slate-300" />}
+                  </div>
+                  <div className="flex items-center justify-between text-[8px] font-black uppercase tracking-widest px-3 py-2 bg-white/50 rounded-lg">
+                    <span>SUPABASE_JWT_SECRET</span>
+                    {systemStatus?.supabaseSecret ? <CheckCircle2 size={10} className="text-emerald-500" /> : <Box size={10} className="text-slate-300" />}
+                  </div>
                 </div>
               </div>
             )}
@@ -526,6 +563,70 @@ export default function App() {
 
       <main className="max-w-5xl w-full mx-auto space-y-8 pb-20">
         
+        {/* Webhook Status Alert (Only if logged in and missing config) */}
+        {user && systemStatus && (!systemStatus.n8nUrl || !systemStatus.chatUrl) && (
+          <div className="bg-rose-50 border border-rose-100 p-6 rounded-[2rem] flex flex-col gap-6 shadow-sm">
+            <div className="flex items-center justify-between gap-6">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-rose-100 rounded-2xl flex items-center justify-center text-rose-600">
+                  <Box size={24} />
+                </div>
+                <div>
+                  <h4 className="text-xs font-black uppercase tracking-widest text-rose-900">Webhook Connection Interrupted</h4>
+                  <p className="text-[10px] text-rose-500 font-medium mt-1 leading-relaxed">
+                    The destination webhooks are either missing or contain placeholder values.
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowDiagnostics(!showDiagnostics)}
+                className="px-4 py-2 bg-white rounded-xl border border-rose-100 text-[9px] font-black uppercase tracking-widest text-rose-600 hover:bg-rose-600 hover:text-white transition-all shadow-sm"
+              >
+                {showDiagnostics ? 'Hide Status' : 'System Report'}
+              </button>
+            </div>
+
+            <AnimatePresence>
+              {showDiagnostics && (
+                <motion.div 
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  className="overflow-hidden bg-white/50 rounded-2xl border border-rose-100/50 p-6 space-y-4"
+                >
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-3">
+                      <p className="text-[9px] font-black text-rose-900 uppercase tracking-widest">Data Gateways</p>
+                      <div className="space-y-2">
+                         <div className="flex items-center justify-between p-3 bg-white rounded-xl text-[9px] font-bold uppercase tracking-wider">
+                           <span className="text-slate-400">N8N_WEBHOOK_URL</span>
+                           {systemStatus.n8nUrl ? <CheckCircle2 size={12} className="text-emerald-500" /> : <AlertTriangle size={12} className="text-rose-500" />}
+                         </div>
+                         <div className="flex items-center justify-between p-3 bg-white rounded-xl text-[9px] font-bold uppercase tracking-wider">
+                           <span className="text-slate-400">CHAT_WEBHOOK_URL</span>
+                           {systemStatus.chatUrl ? <CheckCircle2 size={12} className="text-emerald-500" /> : <AlertTriangle size={12} className="text-rose-500" />}
+                         </div>
+                      </div>
+                    </div>
+                    <div className="space-y-3">
+                      <p className="text-[9px] font-black text-rose-900 uppercase tracking-widest">Identity Protocol</p>
+                      <div className="space-y-2">
+                         <div className="flex items-center justify-between p-3 bg-white rounded-xl text-[9px] font-bold uppercase tracking-wider">
+                           <span className="text-slate-400">SUPABASE_JWT_SECRET</span>
+                           {systemStatus.supabaseSecret ? <CheckCircle2 size={12} className="text-emerald-500" /> : <AlertTriangle size={12} className="text-rose-500" />}
+                         </div>
+                      </div>
+                    </div>
+                  </div>
+                  <p className="text-[9px] text-slate-400 leading-relaxed max-w-lg italic">
+                    Note: If you just updated these values, the server must be restarted to apply changes.
+                  </p>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        )}
+
         {/* Section 1: Upload (TOP) */}
         <section className="space-y-4">
           <div className="flex items-center justify-between px-2">

@@ -59,7 +59,7 @@ async function startServer() {
 
   // System Config Status (Check if variables are set without revealing values)
   app.get("/api/system/status", (req, res) => {
-    const isSet = (val: string | undefined) => !!val && !val.includes('your-') && !val.includes('placeholder');
+    const isSet = (val: string | undefined) => !!val && !val.includes('your-') && !val.includes('placeholder') && val.length > 5;
     
     const status = {
       supabaseUrl: isSet(process.env.VITE_SUPABASE_URL),
@@ -77,6 +77,21 @@ async function startServer() {
       }
     };
     res.json(status);
+  });
+
+  // Update Secret Route (Admin-only or Dev-only helper)
+  app.post("/api/system/update-secret", (req, res) => {
+    const { secret } = req.body;
+    if (!secret || secret.length < 10) {
+      return res.status(400).json({ error: "Invalid secret format" });
+    }
+    
+    // Update in-memory for immediate effect
+    process.env.SUPABASE_JWT_SECRET = secret.trim();
+    SUPABASE_JWT_SECRET = secret.trim();
+    
+    console.log("SUPABASE_JWT_SECRET updated via UI helper");
+    res.json({ success: true, message: "JWT Secret updated for current session" });
   });
 
   // n8n Dispatch Route (Direct Upload) - Protected

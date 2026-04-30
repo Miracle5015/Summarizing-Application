@@ -56,6 +56,8 @@ export default function App() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
+  const [manualJwtSecret, setManualJwtSecret] = useState("");
+  const [isUpdatingSecret, setIsUpdatingSecret] = useState(false);
   const [systemStatus, setSystemStatus] = useState<{
     supabaseUrl: boolean;
     supabaseKey: boolean;
@@ -137,6 +139,28 @@ export default function App() {
       setSystemStatus(response.data);
     } catch (err) {
       console.error("Failed to fetch system status");
+    }
+  };
+
+  const handleUpdateJwtSecret = async () => {
+    if (!manualJwtSecret || manualJwtSecret.length < 10) {
+      setAuthError("Please enter a valid JWT secret (at least 10 characters)");
+      return;
+    }
+
+    setIsUpdatingSecret(true);
+    try {
+      await axios.post("/api/system/update-secret", { secret: manualJwtSecret });
+      await checkSystemStatus();
+      setManualJwtSecret("");
+      setAuthError(null);
+      // Brief success message in error field
+      setAuthError("Secret updated! You can now try to sign in.");
+      setTimeout(() => setAuthError(null), 5000);
+    } catch (err) {
+      setAuthError("Failed to update secret on server");
+    } finally {
+      setIsUpdatingSecret(false);
     }
   };
 
@@ -437,6 +461,28 @@ export default function App() {
                     <span>SUPABASE_JWT_SECRET</span>
                     {systemStatus?.supabaseSecret ? <CheckCircle2 size={10} className="text-emerald-500" /> : <Box size={10} className="text-slate-300" />}
                   </div>
+                </div>
+
+                <div className="pt-2 border-t border-amber-200/50 space-y-3">
+                  <div className="relative group">
+                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-amber-400">
+                      <Key size={14} />
+                    </div>
+                    <input 
+                      type="password"
+                      placeholder="Paste JWT Secret Here"
+                      value={manualJwtSecret}
+                      onChange={(e) => setManualJwtSecret(e.target.value)}
+                      className="w-full bg-white border-amber-100 border rounded-xl py-3 pl-10 pr-4 text-[10px] font-medium focus:outline-none focus:ring-2 focus:ring-amber-200 transition-all"
+                    />
+                  </div>
+                  <button 
+                    onClick={handleUpdateJwtSecret}
+                    disabled={isUpdatingSecret}
+                    className="w-full bg-amber-600 hover:bg-amber-700 text-white py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-sm flex items-center justify-center gap-2"
+                  >
+                    {isUpdatingSecret ? <Loader2 className="animate-spin" size={12} /> : 'Sync Secret Protocol'}
+                  </button>
                 </div>
               </div>
             )}

@@ -97,32 +97,6 @@ async function startServer() {
     res.json(status);
   });
 
-  // Update System Config Route (Dev-only helper)
-  app.post("/api/system/update-config", (req, res) => {
-    const { supabaseSecret, n8nUrl, chatUrl } = req.body;
-    
-    if (supabaseSecret) {
-      const trimmedSecret = supabaseSecret.trim();
-      if (trimmedSecret.length >= 10) {
-        process.env.SUPABASE_JWT_SECRET = trimmedSecret;
-        SUPABASE_JWT_SECRET = trimmedSecret;
-        console.log("SUPABASE_JWT_SECRET updated via UI");
-      }
-    }
-    
-    if (n8nUrl) {
-      process.env.N8N_WEBHOOK_URL = n8nUrl.trim();
-      console.log("N8N_WEBHOOK_URL updated via UI");
-    }
-    
-    if (chatUrl) {
-      process.env.CHAT_WEBHOOK_URL = chatUrl.trim();
-      console.log("CHAT_WEBHOOK_URL updated via UI");
-    }
-    
-    res.json({ success: true, message: "System configuration updated for current session" });
-  });
-
   // n8n Dispatch Route (Direct Upload) - Protected
   app.post("/api/dispatch", authenticateToken, async (req: any, res) => {
     const { base64Data, mimeType, fileName, fileSize, lastModified } = req.body;
@@ -203,17 +177,19 @@ async function startServer() {
 
     const chatUrl = process.env.CHAT_WEBHOOK_URL;
     const webhookSecret = process.env.WEBHOOK_SECRET || 'everything-document-proxy';
-    const userId = user.email;
+    
+    const userEmail = user.email || 'no-email@supabase';
+    const userId = user.id;
 
     if (!chatUrl || chatUrl.includes('your-n8n-instance.com')) {
       return res.status(400).json({ 
         error: "Chat Webhook URL is not configured.",
-        details: "Please set CHAT_WEBHOOK_URL in the application settings with a valid n8n or automation endpoint."
+        details: "Please set CHAT_WEBHOOK_URL in settings."
       });
     }
 
     try {
-      console.log(`Forwarding chat instructions to n8n from ${userId}: ${fileName || 'unnamed'}`);
+      console.log(`Forwarding chat instructions to n8n from ${userEmail}`);
       
       const form = new FormData();
       
@@ -226,9 +202,6 @@ async function startServer() {
         });
       }
       
-      const userEmail = user.email || 'no-email@supabase';
-      const userId = user.id;
-
       form.append('userEmail', userEmail);
       form.append('userId', userId);
       form.append('instructions', instructions || '');

@@ -4,10 +4,14 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import axios from "axios";
 import FormData from "form-data";
-import jwt from "jsonwebtoken";
 import cookieParser from "cookie-parser";
 
-let SUPABASE_JWT_SECRET = process.env.SUPABASE_JWT_SECRET || "";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  process.env.VITE_SUPABASE_URL || "",
+  process.env.VITE_SUPABASE_ANON_KEY || ""
+);
 
 async function startServer() {
   const app = express();
@@ -17,8 +21,8 @@ async function startServer() {
   app.use(express.urlencoded({ extended: true, limit: '20mb' }));
   app.use(cookieParser());
 
-  // Authentication Middleware using Supabase JWT
-  const authenticateToken = (req: any, res: any, next: any) => {
+  // Authentication Middleware using Supabase API verification
+  const authenticateToken = async (req: any, res: any, next: any) => {
     // Check for token in cookies or Authorization header
     const token = req.cookies.supabase_token || req.headers.authorization?.split(' ')[1];
 
@@ -26,45 +30,24 @@ async function startServer() {
       return res.status(401).json({ error: "Access denied. Please log in through Supabase." });
     }
 
-    if (!SUPABASE_JWT_SECRET) {
-      console.error("SUPABASE_JWT_SECRET is not set in environment variables.");
-      return res.status(500).json({ error: "Server authentication misconfigured" });
-    }
-
     try {
-      const decoded: any = jwt.decode(token, { complete: true });
-      const tokenAlg = decoded?.header?.alg;
-      
-      if (decoded) {
-        console.log("JWT Header Algorithm:", tokenAlg);
-      }
-      
-      if (!SUPABASE_JWT_SECRET) {
-        throw new Error("SUPABASE_JWT_SECRET is not defined on the server.");
-      }
+      // Use Supabase SDK to verify the token via their API
+      // This removes the need for SUPABASE_JWT_SECRET on our server
+      const { data: { user }, error: authError } = await supabase.auth.getUser(token);
 
-      // Verify with the algorithm specified in the token or default to HS256
-      const verified: any = jwt.verify(token, SUPABASE_JWT_SECRET, { 
-        algorithms: tokenAlg ? [tokenAlg] : ['HS256'] 
-      });
+      if (authError || !user) {
+        throw new Error(authError?.message || "Invalid user session");
+      }
 
       req.user = {
-        id: verified.sub,
-        email: verified.email
+        id: user.id,
+        email: user.email
       };
       next();
     } catch (err: any) {
-      console.error("JWT Verification Error Details:", err.name, err.message);
-      
-      let message = "Invalid or expired session";
-      if (err.name === 'JsonWebTokenError' && err.message.includes('signature')) {
-        message = "Secret Mismatch. Your SUPABASE_JWT_SECRET may be incorrect.";
-      } else if (err.message.includes('algorithm')) {
-        message = `Algorithm Mismatch. Token uses ${jwt.decode(token, {complete: true})?.header?.alg || 'unknown'} but server expected HS256.`;
-      }
-
+      console.error("Supabase Auth Error:", err.message);
       res.status(401).json({ 
-        error: message,
+        error: "Invalid or expired session",
         details: err.message
       });
     }
@@ -82,14 +65,12 @@ async function startServer() {
     const status = {
       supabaseUrl: isSet(process.env.VITE_SUPABASE_URL),
       supabaseKey: isSet(process.env.VITE_SUPABASE_ANON_KEY),
-      supabaseSecret: isSet(process.env.SUPABASE_JWT_SECRET),
       n8nUrl: isSet(process.env.N8N_WEBHOOK_URL),
       chatUrl: isSet(process.env.CHAT_WEBHOOK_URL),
       // Raw existence checks
       env: {
         VITE_SUPABASE_URL: !!process.env.VITE_SUPABASE_URL,
         VITE_SUPABASE_ANON_KEY: !!process.env.VITE_SUPABASE_ANON_KEY,
-        SUPABASE_JWT_SECRET: !!process.env.SUPABASE_JWT_SECRET,
         N8N_WEBHOOK_URL: !!process.env.N8N_WEBHOOK_URL,
         CHAT_WEBHOOK_URL: !!process.env.CHAT_WEBHOOK_URL,
       }

@@ -420,18 +420,16 @@ export default function App() {
           </div>
 
           <div className="bg-white rounded-[3rem] p-10 shadow-2xl shadow-slate-200/50 border border-slate-100 flex flex-col gap-8 relative overflow-hidden">
-            {(!isSupabaseConfigured || (systemStatus && !systemStatus.supabaseSecret)) && (
+            {!isSupabaseConfigured && (
               <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6 flex flex-col gap-4">
                 <div className="flex gap-4 items-start">
                   <div className="bg-amber-100 p-2 rounded-lg text-amber-600">
                     <Lock size={16} />
                   </div>
                   <div className="space-y-1">
-                    <p className="text-[10px] font-black text-amber-900 uppercase tracking-widest leading-none mt-1">Auth Protocol Incomplete</p>
+                    <p className="text-[10px] font-black text-amber-900 uppercase tracking-widest leading-none mt-1">Supabase Not Connected</p>
                     <p className="text-[10px] text-amber-700 font-medium leading-relaxed">
-                      Your Supabase integration is missing critical keys. <br/>
-                      Find your <strong>JWT Secret</strong> in: 
-                      <span className="block mt-1 font-bold text-amber-800">Supabase Settings → API → JWT Settings → JWT Secret</span>
+                      Your Supabase integration is missing critical environment variables. 
                     </p>
                   </div>
                 </div>
@@ -444,10 +442,6 @@ export default function App() {
                   <div className="flex items-center justify-between text-[8px] font-black uppercase tracking-widest px-3 py-2 bg-white/50 rounded-lg">
                     <span>VITE_SUPABASE_ANON_KEY</span>
                     {systemStatus?.supabaseKey ? <CheckCircle2 size={10} className="text-emerald-500" /> : <Box size={10} className="text-slate-300" />}
-                  </div>
-                  <div className="flex items-center justify-between text-[8px] font-black uppercase tracking-widest px-3 py-2 bg-white/50 rounded-lg">
-                    <span>SUPABASE_JWT_SECRET</span>
-                    {systemStatus?.supabaseSecret ? <CheckCircle2 size={10} className="text-emerald-500" /> : <Box size={10} className="text-slate-300" />}
                   </div>
                 </div>
               </div>

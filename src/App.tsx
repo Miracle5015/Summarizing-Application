@@ -57,7 +57,10 @@ export default function App() {
   const [password, setPassword] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
   const [manualJwtSecret, setManualJwtSecret] = useState("");
-  const [isUpdatingSecret, setIsUpdatingSecret] = useState(false);
+  const [manualN8nUrl, setManualN8nUrl] = useState("");
+  const [manualChatUrl, setManualChatUrl] = useState("");
+  const [isUpdatingConfig, setIsUpdatingConfig] = useState(false);
+  const [configSuccess, setConfigSuccess] = useState(false);
   const [systemStatus, setSystemStatus] = useState<{
     supabaseUrl: boolean;
     supabaseKey: boolean;
@@ -142,25 +145,24 @@ export default function App() {
     }
   };
 
-  const handleUpdateJwtSecret = async () => {
-    if (!manualJwtSecret || manualJwtSecret.length < 10) {
-      setAuthError("Please enter a valid JWT secret (at least 10 characters)");
-      return;
-    }
-
-    setIsUpdatingSecret(true);
+  const handleUpdateConfig = async () => {
+    setIsUpdatingConfig(true);
     try {
-      await axios.post("/api/system/update-secret", { secret: manualJwtSecret });
+      await axios.post("/api/system/update-config", { 
+        supabaseSecret: manualJwtSecret,
+        n8nUrl: manualN8nUrl,
+        chatUrl: manualChatUrl
+      });
       await checkSystemStatus();
       setManualJwtSecret("");
-      setAuthError(null);
-      // Brief success message in error field
-      setAuthError("Secret updated! You can now try to sign in.");
-      setTimeout(() => setAuthError(null), 5000);
+      setManualN8nUrl("");
+      setManualChatUrl("");
+      setConfigSuccess(true);
+      setTimeout(() => setConfigSuccess(false), 3000);
     } catch (err) {
-      setAuthError("Failed to update secret on server");
+      console.error("Failed to update config");
     } finally {
-      setIsUpdatingSecret(false);
+      setIsUpdatingConfig(false);
     }
   };
 
@@ -443,7 +445,9 @@ export default function App() {
                   <div className="space-y-1">
                     <p className="text-[10px] font-black text-amber-900 uppercase tracking-widest leading-none mt-1">Auth Protocol Incomplete</p>
                     <p className="text-[10px] text-amber-700 font-medium leading-relaxed">
-                      Your Supabase integration is missing critical keys. Authentication cannot proceed.
+                      Your Supabase integration is missing critical keys. <br/>
+                      Find your <strong>JWT Secret</strong> in: 
+                      <span className="block mt-1 font-bold text-amber-800">Supabase Settings → API → JWT Settings → JWT Secret</span>
                     </p>
                   </div>
                 </div>
@@ -477,11 +481,11 @@ export default function App() {
                     />
                   </div>
                   <button 
-                    onClick={handleUpdateJwtSecret}
-                    disabled={isUpdatingSecret}
+                    onClick={handleUpdateConfig}
+                    disabled={isUpdatingConfig}
                     className="w-full bg-amber-600 hover:bg-amber-700 text-white py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-sm flex items-center justify-center gap-2"
                   >
-                    {isUpdatingSecret ? <Loader2 className="animate-spin" size={12} /> : 'Sync Secret Protocol'}
+                    {isUpdatingConfig ? <Loader2 className="animate-spin" size={12} /> : 'Sync Secret Protocol'}
                   </button>
                 </div>
               </div>
@@ -801,140 +805,197 @@ export default function App() {
           </div>
         </section>
 
-        {/* Section 2: Chat (BOTTOM) */}
-        <section className="space-y-4">
-          <div className="flex items-center gap-3 px-2">
-            <div className="p-2 bg-brand rounded-lg text-white">
-              <MessageSquare size={18} />
-            </div>
-            <h2 className="text-xs font-black uppercase tracking-[0.3em] text-brand-black">Chat with document</h2>
-          </div>
-
-          <div className="panel-white border-2 border-transparent transition-all duration-500 bg-white shadow-xl shadow-slate-100 overflow-hidden flex flex-col min-h-[500px]">
-            <div 
-              ref={chatContainerRef}
-              className="flex-1 p-8 overflow-y-auto space-y-6 max-h-[600px] bg-slate-50/30 scroll-smooth"
-            >
-              {chatHistory.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-center py-20">
-                  <div className="w-16 h-16 bg-white rounded-3xl flex items-center justify-center mb-6 text-slate-200 border border-slate-100 shadow-sm">
-                    <MessageSquare size={32} />
-                  </div>
-                  <p className="text-xs text-slate-400 font-black uppercase tracking-widest max-w-[200px]">No messages yet. Send a query to begin.</p>
-                </div>
-              ) : (
-                <div className="space-y-6">
-                  {chatHistory.map((msg, idx) => (
-                    <motion.div 
-                      key={idx}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className={cn(
-                        "flex flex-col max-w-[85%]",
-                        msg.role === 'user' ? "ml-auto items-end" : "mr-auto items-start"
-                      )}
-                    >
-                      <div className={cn(
-                        "p-6 rounded-[2rem] text-sm leading-relaxed",
-                        msg.role === 'user' 
-                          ? "bg-brand-black text-white rounded-tr-none shadow-lg shadow-slate-900/10" 
-                          : "bg-white text-slate-700 rounded-tl-none border border-slate-100 shadow-sm"
-                      )}>
-                        {msg.content}
-                      </div>
-                      <span className="text-[9px] font-black text-slate-300 uppercase tracking-widest mt-2 px-2">
-                        {msg.role === 'user' ? 'You' : 'Assistant'} &bull; {msg.timestamp}
-                      </span>
-                    </motion.div>
-                  ))}
-                  {chatStatus === 'processing' && (
-                    <motion.div 
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      className="flex flex-col items-start mr-auto"
-                    >
-                      <div className="p-6 bg-white rounded-[2rem] rounded-tl-none border border-slate-100 flex items-center gap-3">
-                        <Loader2 className="animate-spin text-brand" size={18} />
-                        <span className="text-xs font-black uppercase tracking-widest text-slate-400">Processing...</span>
-                      </div>
-                    </motion.div>
-                  )}
-                </div>
-              )}
+        {/* Section 2: Chat & Settings */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Chat Gateway (Left/Main) */}
+          <section className="lg:col-span-2 space-y-4 flex flex-col h-full">
+            <div className="flex items-center gap-3 px-2">
+              <div className="p-2 bg-brand rounded-lg text-white">
+                <MessageSquare size={18} />
+              </div>
+              <h2 className="text-xs font-black uppercase tracking-[0.3em] text-brand-black">Chat with document</h2>
             </div>
 
-            <div className="border-t border-slate-100 p-8 bg-white">
-              <div className="space-y-6">
-                {/* Chat Input area */}
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between px-4">
-                    <div className="flex items-center gap-2 text-slate-400">
-                      <Mail size={16} />
-                      <span className="text-[10px] font-black uppercase tracking-widest">Query Instructions</span>
+            <div className="panel-white border-2 border-transparent transition-all duration-500 bg-white shadow-xl shadow-slate-100 overflow-hidden flex flex-col h-[600px] rounded-[3rem]">
+              <div 
+                ref={chatContainerRef}
+                className="flex-1 p-8 overflow-y-auto space-y-6 bg-slate-50/30 scroll-smooth"
+              >
+                {chatHistory.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-center py-20">
+                    <div className="w-16 h-16 bg-white rounded-3xl flex items-center justify-center mb-6 text-slate-200 border border-slate-100 shadow-sm">
+                      <MessageSquare size={32} />
                     </div>
-                    {chatHistory.length > 0 && (
-                      <button 
-                        onClick={() => setChatHistory([])}
-                        className="text-[10px] font-black uppercase tracking-widest text-slate-300 hover:text-rose-500 transition-colors flex items-center gap-2"
+                    <p className="text-xs text-slate-400 font-black uppercase tracking-widest max-w-[200px]">No messages yet. Send a query to begin.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {chatHistory.map((msg, idx) => (
+                      <motion.div 
+                        key={idx}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className={cn(
+                          "flex flex-col max-w-[85%]",
+                          msg.role === 'user' ? "ml-auto items-end" : "mr-auto items-start"
+                        )}
                       >
-                        <Trash2 size={12} /> Clear Chat
-                      </button>
+                        <div className={cn(
+                          "p-6 rounded-[2rem] text-sm leading-relaxed",
+                          msg.role === 'user' 
+                            ? "bg-brand-black text-white rounded-tr-none shadow-lg shadow-slate-900/10" 
+                            : "bg-white text-slate-700 rounded-tl-none border border-slate-100 shadow-sm"
+                        )}>
+                          {msg.content}
+                        </div>
+                        <span className="text-[9px] font-black text-slate-300 uppercase tracking-widest mt-2 px-2">
+                          {msg.role === 'user' ? 'You' : 'Assistant'} &bull; {msg.timestamp}
+                        </span>
+                      </motion.div>
+                    ))}
+                    {chatStatus === 'processing' && (
+                      <motion.div 
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        className="flex flex-col items-start mr-auto"
+                      >
+                        <div className="p-6 bg-white rounded-[2rem] rounded-tl-none border border-slate-100 flex items-center gap-3">
+                          <Loader2 className="animate-spin text-brand" size={18} />
+                          <span className="text-xs font-black uppercase tracking-widest text-slate-400">Processing...</span>
+                        </div>
+                      </motion.div>
                     )}
                   </div>
-                  <div className="relative group">
-                    <textarea
-                      value={instructions}
-                      onChange={(e) => setInstructions(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault();
-                          handleChat();
-                        }
-                      }}
-                      placeholder="Type your message or instructions for the gateway..."
-                      className={cn(
-                        "w-full min-h-[120px] p-8 rounded-[2.5rem] text-slate-700 font-medium placeholder:text-slate-300 resize-none transition-all outline-none bg-slate-50/50 border-2 border-transparent focus:bg-white focus:border-brand/40 shadow-inner"
+                )}
+              </div>
+
+              <div className="border-t border-slate-100 p-8 bg-white">
+                <div className="space-y-6">
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between px-4">
+                      <div className="flex items-center gap-2 text-slate-400">
+                        <Mail size={16} />
+                        <span className="text-[10px] font-black uppercase tracking-widest">Query Instructions</span>
+                      </div>
+                      {chatHistory.length > 0 && (
+                        <button 
+                          onClick={() => setChatHistory([])}
+                          className="text-[10px] font-black uppercase tracking-widest text-slate-300 hover:text-rose-500 transition-colors flex items-center gap-2"
+                        >
+                          <Trash2 size={12} /> Clear Chat
+                        </button>
                       )}
-                    />
-                    <div className="absolute bottom-6 right-6">
-                      <Sparkles 
-                        size={24} 
+                    </div>
+                    <div className="relative group">
+                      <textarea
+                        value={instructions}
+                        onChange={(e) => setInstructions(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            handleChat();
+                          }
+                        }}
+                        placeholder="Type your message..."
                         className={cn(
-                          "transition-all duration-500", 
-                          instructions ? "text-brand-orange scale-110" : "text-slate-200"
-                        )} 
+                          "w-full min-h-[100px] p-6 rounded-[2rem] text-slate-700 font-medium placeholder:text-slate-300 resize-none transition-all outline-none bg-slate-50/50 border-2 border-transparent focus:bg-white focus:border-brand/40 shadow-inner"
+                        )}
                       />
                     </div>
                   </div>
-                </div>
 
-                <button
-                  disabled={chatStatus === 'processing' || !instructions}
-                  onClick={handleChat}
-                  className="w-full bg-brand-black text-white h-20 rounded-[1.5rem] flex items-center justify-center gap-4 text-lg shadow-xl hover:bg-brand transition-all disabled:opacity-10 group"
-                >
-                  {chatStatus === 'processing' ? (
-                    <>
-                      <Loader2 className="animate-spin" size={24} />
-                      <span className="text-xs uppercase font-black tracking-widest">Processing...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles size={24} className={cn(instructions ? "animate-pulse text-white" : "opacity-30")} />
-                      <span className="font-black tracking-tight text-sm uppercase">Dispatch Query</span>
-                      <ArrowRight size={20} className="opacity-30 group-hover:translate-x-3 transition-transform" />
-                    </>
-                  )}
-                </button>
-
-                <div className="flex justify-center flex-col items-center gap-1 pt-4 opacity-30">
-                  <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Context Connector</p>
-                  <p className="text-[9px] font-bold text-slate-900 mono">/api/chat</p>
+                  <button
+                    disabled={chatStatus === 'processing' || !instructions}
+                    onClick={handleChat}
+                    className="w-full bg-brand-black text-white h-16 rounded-2xl flex items-center justify-center gap-4 text-xs font-black uppercase tracking-widest shadow-xl hover:bg-brand transition-all disabled:opacity-10 group"
+                  >
+                    {chatStatus === 'processing' ? <Loader2 className="animate-spin" size={18} /> : <span>Dispatch Query</span>}
+                    <ArrowRight size={16} className="opacity-30 group-hover:translate-x-2 transition-transform" />
+                  </button>
                 </div>
               </div>
             </div>
-          </div>
-        </section>
+          </section>
+
+          {/* System Console (Right Sidebar) */}
+          <section className="space-y-4">
+             <div className="flex items-center gap-3 px-2">
+                <div className="p-2 bg-brand-black rounded-lg text-white">
+                  <Fingerprint size={18} />
+                </div>
+                <h2 className="text-xs font-black uppercase tracking-[0.3em] text-brand-black">System Console</h2>
+             </div>
+             
+             <div className="panel-white bg-slate-50 p-8 border border-slate-100 flex flex-col gap-6 rounded-[3rem] shadow-xl shadow-slate-100 min-h-[600px]">
+                <div className="flex-1 space-y-6">
+                   <div className="space-y-2">
+                      <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 flex items-center justify-between">
+                        SUPABASE_JWT_SECRET
+                        {systemStatus?.supabaseSecret && <CheckCircle2 size={12} className="text-emerald-500" />}
+                      </label>
+                      <input 
+                        type="password"
+                        placeholder="Paste JWT Secret"
+                        value={manualJwtSecret}
+                        onChange={(e) => setManualJwtSecret(e.target.value)}
+                        className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-[10px] font-medium focus:ring-2 focus:ring-brand/10 outline-none transition-all"
+                      />
+                   </div>
+
+                   <div className="space-y-2">
+                      <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 flex items-center justify-between">
+                        N8N_WEBHOOK_URL
+                        {systemStatus?.n8nUrl && <CheckCircle2 size={12} className="text-emerald-500" />}
+                      </label>
+                      <input 
+                        type="text"
+                        placeholder="e.g. https://your-n8n.com/..."
+                        value={manualN8nUrl}
+                        onChange={(e) => setManualN8nUrl(e.target.value)}
+                        className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-[10px] font-medium focus:ring-2 focus:ring-brand/10 outline-none transition-all"
+                      />
+                   </div>
+
+                   <div className="space-y-2">
+                      <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 flex items-center justify-between">
+                        CHAT_WEBHOOK_URL
+                        {systemStatus?.chatUrl && <CheckCircle2 size={12} className="text-emerald-500" />}
+                      </label>
+                      <input 
+                        type="text"
+                        placeholder="e.g. https://your-n8n.com/..."
+                        value={manualChatUrl}
+                        onChange={(e) => setManualChatUrl(e.target.value)}
+                        className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-[10px] font-medium focus:ring-2 focus:ring-brand/10 outline-none transition-all"
+                      />
+                   </div>
+
+                   <div className="bg-amber-50 rounded-2xl p-4 border border-amber-100">
+                      <p className="text-[9px] text-amber-700 leading-relaxed font-medium">
+                        <b>Critical Protocol:</b> If you are using Supabase, look for the <b>JWT Secret</b> in your dashboard under Settings &rarr; API. Paste it above to verify your session keys.
+                      </p>
+                   </div>
+                </div>
+
+                <button 
+                  onClick={handleUpdateConfig}
+                  disabled={isUpdatingConfig}
+                  className={cn(
+                    "w-full h-14 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2",
+                    configSuccess ? "bg-emerald-500 text-white shadow-emerald-200" : "bg-brand-black text-white hover:bg-brand shadow-xl shadow-brand-black/5"
+                  )}
+                >
+                  {isUpdatingConfig ? <Loader2 className="animate-spin" size={14} /> : (
+                    configSuccess ? <> <CheckCircle2 size={14} /> Synced </> : <> <RefreshCcw size={14} /> Update Console </>
+                  )}
+                </button>
+                
+                <p className="text-[9px] text-slate-300 italic leading-relaxed text-center px-4">
+                  Changes apply to the current active session only.
+                </p>
+             </div>
+          </section>
+        </div>
 
         {/* Global Error Banner */}
         {error && (

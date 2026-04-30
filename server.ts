@@ -7,7 +7,7 @@ import FormData from "form-data";
 import jwt from "jsonwebtoken";
 import cookieParser from "cookie-parser";
 
-const SUPABASE_JWT_SECRET = process.env.SUPABASE_JWT_SECRET;
+let SUPABASE_JWT_SECRET = process.env.SUPABASE_JWT_SECRET || "";
 
 async function startServer() {
   const app = express();
@@ -32,21 +32,39 @@ async function startServer() {
     }
 
     try {
-      if (!SUPABASE_JWT_SECRET) {
-        throw new Error("SUPABASE_JWT_SECRET is not defined");
+      const decoded: any = jwt.decode(token, { complete: true });
+      const tokenAlg = decoded?.header?.alg;
+      
+      if (decoded) {
+        console.log("JWT Header Algorithm:", tokenAlg);
       }
-      // Supabase JWTs are signed with the project's JWT Secret using HS256
-      const verified: any = jwt.verify(token, SUPABASE_JWT_SECRET, { algorithms: ['HS256'] });
+      
+      if (!SUPABASE_JWT_SECRET) {
+        throw new Error("SUPABASE_JWT_SECRET is not defined on the server.");
+      }
+
+      // Verify with the algorithm specified in the token or default to HS256
+      const verified: any = jwt.verify(token, SUPABASE_JWT_SECRET, { 
+        algorithms: tokenAlg ? [tokenAlg] : ['HS256'] 
+      });
+
       req.user = {
         id: verified.sub,
         email: verified.email
       };
       next();
     } catch (err: any) {
-      console.error("JWT Verification Error:", err.message);
-      const isSignatureError = err.name === 'JsonWebTokenError' && err.message.includes('signature');
+      console.error("JWT Verification Error Details:", err.name, err.message);
+      
+      let message = "Invalid or expired session";
+      if (err.name === 'JsonWebTokenError' && err.message.includes('signature')) {
+        message = "Secret Mismatch. Your SUPABASE_JWT_SECRET may be incorrect.";
+      } else if (err.message.includes('algorithm')) {
+        message = `Algorithm Mismatch. Token uses ${jwt.decode(token, {complete: true})?.header?.alg || 'unknown'} but server expected HS256.`;
+      }
+
       res.status(401).json({ 
-        error: isSignatureError ? "Authentication Secret Mismatch. Check your SUPABASE_JWT_SECRET." : "Invalid or expired session",
+        error: message,
         details: err.message
       });
     }
@@ -79,19 +97,30 @@ async function startServer() {
     res.json(status);
   });
 
-  // Update Secret Route (Admin-only or Dev-only helper)
-  app.post("/api/system/update-secret", (req, res) => {
-    const { secret } = req.body;
-    if (!secret || secret.length < 10) {
-      return res.status(400).json({ error: "Invalid secret format" });
+  // Update System Config Route (Dev-only helper)
+  app.post("/api/system/update-config", (req, res) => {
+    const { supabaseSecret, n8nUrl, chatUrl } = req.body;
+    
+    if (supabaseSecret) {
+      const trimmedSecret = supabaseSecret.trim();
+      if (trimmedSecret.length >= 10) {
+        process.env.SUPABASE_JWT_SECRET = trimmedSecret;
+        SUPABASE_JWT_SECRET = trimmedSecret;
+        console.log("SUPABASE_JWT_SECRET updated via UI");
+      }
     }
     
-    // Update in-memory for immediate effect
-    process.env.SUPABASE_JWT_SECRET = secret.trim();
-    SUPABASE_JWT_SECRET = secret.trim();
+    if (n8nUrl) {
+      process.env.N8N_WEBHOOK_URL = n8nUrl.trim();
+      console.log("N8N_WEBHOOK_URL updated via UI");
+    }
     
-    console.log("SUPABASE_JWT_SECRET updated via UI helper");
-    res.json({ success: true, message: "JWT Secret updated for current session" });
+    if (chatUrl) {
+      process.env.CHAT_WEBHOOK_URL = chatUrl.trim();
+      console.log("CHAT_WEBHOOK_URL updated via UI");
+    }
+    
+    res.json({ success: true, message: "System configuration updated for current session" });
   });
 
   // n8n Dispatch Route (Direct Upload) - Protected
@@ -106,7 +135,7 @@ async function startServer() {
     const n8nUrl = process.env.N8N_WEBHOOK_URL;
     const webhookSecret = process.env.WEBHOOK_SECRET || 'everything-document-proxy';
     
-    // Use Email as primary ID for display, but send both
+    // Use the verified user from the token
     const userEmail = user.email || 'no-email@supabase';
     const userId = user.id;
 
@@ -196,7 +225,7 @@ async function startServer() {
           contentType: mimeType,
         });
       }
-
+      
       const userEmail = user.email || 'no-email@supabase';
       const userId = user.id;
 

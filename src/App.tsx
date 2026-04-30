@@ -156,6 +156,15 @@ export default function App() {
       if (authMode === 'signup') {
         const { data, error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
+        
+        // Supabase sometimes returns 200 with an empty identities array if the email is already taken
+        // and "Email Enumeration Protection" is enabled in your Supabase dashboard.
+        if (data.user && data.user.identities && data.user.identities.length === 0) {
+          setAuthError("This email is already registered. Please sign in instead.");
+          setAuthLoading(false);
+          return;
+        }
+
         if (data.user) {
           setUser({ id: data.user.id, email: data.user.email || "" });
         }
